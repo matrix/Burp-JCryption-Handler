@@ -5,6 +5,11 @@ but I needed it, so why not write a plugin for Burp Suite (https://portswigger.n
 <br>
 using my preferred language, Java (it's a joke, it's a trap) :D
 
+## Features
+
+Refer to [FEATURES.md](FEATURES.md) for some details. It's not completed because i'm too lazy.<br>
+One day I will end it, not today because it is Saturday :D
+
 ## Building
 
 Refer to [BUILD.md](BUILD.md) for instructions on how to build it from source.
