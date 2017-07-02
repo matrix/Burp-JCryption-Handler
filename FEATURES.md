@@ -65,7 +65,7 @@ In that way the plugin have the time to intercept the request to "localhost:1337
 
 ## New Burp Suite tab (logger, preferences, about)
 The plugin add some custom tabs to Burp Suite in order to:
-- show a copy of the encrypted request (the response will be implemented later) in the "Logger" tab.<br>
+- show a copy of all requests (and their responses) that contains the encrypted parameter in the "Logger" tab.<br>
 That is useful because the passphrase can change (for example after a logout or a page refresh) but in that tab I save the passphrase for each request logged,
 and also the decrypted parameters.
 

