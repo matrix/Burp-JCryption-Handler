@@ -1,7 +1,5 @@
 package burp;
 
-//import java.awt.Font;
-
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JToggleButton;
@@ -20,8 +18,11 @@ public class PreferencesPane extends JPanel {
 	private JTextField txt_parameter_value;
 	private JTextField txt_passphrase_value;
 	private boolean isEnabled;
+	private IBurpExtenderCallbacks callbacks;
 
-	public PreferencesPane() {
+	public PreferencesPane(IBurpExtenderCallbacks icallbacks) {
+
+		this.callbacks = icallbacks;
 
 		setLayout(null);
 
@@ -31,7 +32,6 @@ public class PreferencesPane extends JPanel {
 
 		JToggleButton tglbtn_status = new JToggleButton("Disable");
 		tglbtn_status.setBounds(194, 44, 76, 29);
-		// tglbtn_status.setFont(new Font("Lato", Font.PLAIN, 14));
 		tglbtn_status.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
 				if (e.getStateChange() == ItemEvent.SELECTED)
@@ -69,14 +69,21 @@ public class PreferencesPane extends JPanel {
 
 		JButton btn_save = new JButton("Save");
 		btn_save.setBounds(390, 188, 60, 31);
-		// btn_save.setFont(new Font("Lato", Font.PLAIN, 14));
 		btn_save.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				String tmp1 = txt_parameter_value.getText();
-				if (tmp1.length() > 0) BurpExtender.setParameter(tmp1);
+				if (tmp1.length() > 0)
+				{
+					BurpExtender.setParameter(tmp1);
+					callbacks.saveExtensionSetting("JCryption_lastParameter", tmp1);
+				}
 
 				String tmp2 = txt_passphrase_value.getText();
-				if (tmp2.length() > 0) BurpExtender.setPassphrase(tmp2.getBytes());
+				if (tmp2.length() > 0)
+				{
+					BurpExtender.setPassphrase(tmp2.getBytes());
+					callbacks.saveExtensionSetting("JCryption_lastPassphrase", tmp2);
+				}
 			}
 		});
 

@@ -31,7 +31,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 
-public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerInsertionPointProvider, IProxyListener {
+public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerInsertionPointProvider, IProxyListener, IExtensionStateListener {
 
 	private static final long serialVersionUID = 1L;
 
@@ -126,6 +126,13 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		callbacks.registerMessageEditorTabFactory(this);
 		callbacks.registerContextMenuFactory(this);
 		callbacks.registerProxyListener(this);
+		callbacks.registerExtensionStateListener(this);
+
+		// if found, restore extension settings
+		String lastParameter = callbacks.loadExtensionSetting("JCryption_lastParameter");
+		if (lastParameter != null && lastParameter.length() > 0) setParameter(lastParameter);
+		String lastPassphrase = callbacks.loadExtensionSetting("JCryption_lastPassphrase");
+		if (lastPassphrase != null && lastPassphrase.length() > 0) setPassphrase(helpers.stringToBytes(lastPassphrase));
 
 		// UI
 
@@ -147,7 +154,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				tabs.addTab("Response", responseViewer.getComponent());
 				loggerPane.setRightComponent(tabs);
 
-				preferencesPane = new PreferencesPane();
+				preferencesPane = new PreferencesPane(callbacks);
 				AboutPane aboutPane = new AboutPane();
 
 				mainTab = new JTabbedPane();
@@ -640,6 +647,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						URL url = requestInfo.getUrl();
 						String p = url.getFile().substring(4);
 						mainPassphrase = helpers.stringToBytes(p);
+						callbacks.saveExtensionSetting("JCryption_lastPassphrase", p);
 						preferencesPane.setPassphrase(p);
 						message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
 					}
@@ -814,6 +822,16 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		{
 			return INS_EXTENSION_PROVIDED;
 		}
+	}
+
+	@Override
+	public void extensionUnloaded()
+	{
+		// save current extension settings
+		String tmp1 = getParameter();
+		if (tmp1 != null && tmp1.length() > 0) callbacks.saveExtensionSetting("JCryption_lastParameter", tmp1);
+		String tmp2 = helpers.bytesToString(getPassphrase());
+		if (tmp2 != null && tmp2.length() > 0) callbacks.saveExtensionSetting("JCryption_lastPassphrase", tmp2);
 	}
 
 	private class Table extends JTable
