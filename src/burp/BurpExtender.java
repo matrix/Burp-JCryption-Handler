@@ -36,7 +36,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	private static final long serialVersionUID = 1L;
 
 	public static String EXTENSION_NAME    = "JCryption Handler";
-	public static String EXTENSION_VERSION = "1.0";
+	public static String EXTENSION_VERSION = "1.1";
 	public static String EXTENSION_AUTHOR  = "Gabriele 'matrix' Gristina";
 	public static String EXTENSION_URL     = "https://www.github.com/matrix/Burp-JCryption-Handler";
 	public static String EXTENSION_IMG     = "/img/matrix_systemFailure.gif";
