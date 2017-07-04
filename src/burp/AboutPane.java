@@ -5,7 +5,6 @@ import javax.swing.JLabel;
 
 import javax.swing.ImageIcon;
 
-//import java.awt.Font;
 import java.awt.Color;
 import java.awt.Desktop;
 import java.awt.event.MouseAdapter;
@@ -22,37 +21,30 @@ public class AboutPane extends JPanel {
 
 		JLabel lbl_name = new JLabel("Name");
 		lbl_name.setBounds(104, 31, 48, 22);
-//		lbl_name.setFont(new Font("Lato Semibold", Font.PLAIN, 17));
 		add(lbl_name);
 
 		JLabel lbl_name_value = new JLabel(BurpExtender.EXTENSION_NAME);
 		lbl_name_value.setBounds(178, 31, 443, 22);
-//		lbl_name_value.setFont(new Font("Lato", Font.ITALIC, 17));
 		add(lbl_name_value);
 
 		JLabel lbl_version = new JLabel("Version");
 		lbl_version.setBounds(93, 58, 61, 22);
-//		lbl_version.setFont(new Font("Lato Semibold", Font.PLAIN, 17));
 		add(lbl_version);
 
 		JLabel lbl_version_value = new JLabel(BurpExtender.EXTENSION_VERSION);
 		lbl_version_value.setBounds(178, 58, 443, 22);
-//		lbl_version_value.setFont(new Font("Lato", Font.ITALIC, 17));
 		add(lbl_version_value);
 
 		JLabel lbl_author = new JLabel("Author");
-		lbl_author.setBounds(98, 85, 56, 22);
-//		lbl_author.setFont(new Font("Lato Semibold", Font.PLAIN, 17));
+		lbl_author.setBounds(96, 85, 56, 22);
 		add(lbl_author);
 
 		JLabel lbl_author_value = new JLabel(BurpExtender.EXTENSION_AUTHOR);
 		lbl_author_value.setBounds(178, 85, 443, 22);
-//		lbl_author_value.setFont(new Font("Lato", Font.ITALIC, 17));
 		add(lbl_author_value);
 
 		JLabel lbl_development = new JLabel("Development");
-		lbl_development.setBounds(57, 112, 109, 22);
-//		lbl_development.setFont(new Font("Lato Semibold", Font.PLAIN, 17));
+		lbl_development.setBounds(63, 112, 109, 22);
 		add(lbl_development);
 
 		JLabel lbl_development_value = new JLabel(BurpExtender.EXTENSION_URL);
@@ -71,7 +63,6 @@ public class AboutPane extends JPanel {
 			}
 		});
 		lbl_development_value.setForeground(Color.BLUE);
-//		lbl_development_value.setFont(new Font("Lato", Font.ITALIC, 17));
 		add(lbl_development_value);
 
 		URL url = getClass().getResource(BurpExtender.EXTENSION_IMG);
