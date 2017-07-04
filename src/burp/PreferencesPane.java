@@ -30,7 +30,7 @@ public class PreferencesPane extends JPanel {
 		add(separator);
 
 		JToggleButton tglbtn_status = new JToggleButton("Disable");
-		tglbtn_status.setBounds(194, 44, 73, 29);
+		tglbtn_status.setBounds(194, 44, 76, 29);
 		// tglbtn_status.setFont(new Font("Lato", Font.PLAIN, 14));
 		tglbtn_status.addItemListener(new ItemListener() {
 			public void itemStateChanged(ItemEvent e) {
@@ -48,13 +48,13 @@ public class PreferencesPane extends JPanel {
 		});
 
 		JLabel lbl_status = new JLabel("Status");
-		lbl_status.setBounds(108, 50, 39, 16);
+		lbl_status.setBounds(108, 50, 73, 16);
 		add(lbl_status);
 		tglbtn_status.setSelected(true);
 		add(tglbtn_status);
 
 		JLabel lbl_parameter = new JLabel("Parameter");
-		lbl_parameter.setBounds(85, 125, 62, 16);
+		lbl_parameter.setBounds(85, 125, 83, 16);
 		add(lbl_parameter);
 
 		txt_parameter_value = new JTextField();
@@ -64,11 +64,11 @@ public class PreferencesPane extends JPanel {
 		txt_parameter_value.setColumns(10);
 
 		JLabel lbl_passphrase = new JLabel("Passphrase");
-		lbl_passphrase.setBounds(77, 156, 70, 16);
+		lbl_passphrase.setBounds(77, 156, 86, 16);
 		add(lbl_passphrase);
 
 		JButton btn_save = new JButton("Save");
-		btn_save.setBounds(375, 188, 75, 31);
+		btn_save.setBounds(390, 188, 60, 31);
 		// btn_save.setFont(new Font("Lato", Font.PLAIN, 14));
 		btn_save.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
