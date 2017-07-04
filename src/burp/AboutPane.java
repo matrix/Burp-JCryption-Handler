@@ -65,7 +65,7 @@ public class AboutPane extends JPanel {
 					try {
 						desktop.browse(new URL(BurpExtender.EXTENSION_URL).toURI());
 					} catch (Exception e) {
-						e.printStackTrace();
+						throw new RuntimeException(e);
 					}
 				}
 			}
