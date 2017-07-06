@@ -1,8 +1,19 @@
 package burp;
 
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Desktop;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.FileReader;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,19 +26,30 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JFileChooser;
+import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
+import javax.swing.filechooser.FileFilter;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 
@@ -35,11 +57,11 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 	private static final long serialVersionUID = 1L;
 
-	public static String EXTENSION_NAME    = "JCryption Handler";
-	public static String EXTENSION_VERSION = "1.1";
-	public static String EXTENSION_AUTHOR  = "Gabriele 'matrix' Gristina";
-	public static String EXTENSION_URL     = "https://www.github.com/matrix/Burp-JCryption-Handler";
-	public static String EXTENSION_IMG     = "/img/matrix_systemFailure.gif";
+	public String EXTENSION_NAME    = "JCryption Handler";
+	public String EXTENSION_VERSION = "1.2";
+	public String EXTENSION_AUTHOR  = "Gabriele Gristina aka Matrix";
+	public String EXTENSION_URL     = "https://www.github.com/matrix/Burp-JCryption-Handler";
+	public String EXTENSION_IMG     = "/img/matrix_systemFailure.gif";
 
 	private IBurpExtenderCallbacks callbacks;
 	private IExtensionHelpers helpers;
@@ -47,15 +69,121 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	private IMessageEditor requestViewer;
 	private IMessageEditor responseViewer;
 	private IHttpRequestResponse currentlyDisplayedItem;
-	private static final List<LogEntry> log = new ArrayList<LogEntry>();
+	private final List<LogEntry> log = new ArrayList<LogEntry>();
 	private Map<Integer,Integer> refs = new HashMap<>();
 
 	private JTabbedPane mainTab;
-	private PreferencesPane preferencesPane;
 
-	private static byte[] mainPassphrase = "".getBytes();
-	private static String mainParameter = "jCryption";
-	private static List<IParameter> currentSession = null;
+	// Preferences UI
+	private boolean isEnabled;
+	private JTextField txt_parameter_value;
+	private JTextField txt_passphrase_value;
+
+	private byte[] mainPassphrase = "".getBytes();
+	private String mainParameter = "jCryption";
+	private List<IParameter> currentSession = null;
+
+	public void importCSVToLogger(String filename)
+	{
+		try
+		{
+			synchronized(log)
+			{
+				BufferedReader br = new BufferedReader(new FileReader(new File(filename)));
+				String line = null;
+				boolean first = false;
+
+				while((line = br.readLine())!=null)
+				{
+					// skip header
+					if (!first)
+					{
+						first = true;
+						continue;
+					}
+
+					String host = "";
+					//String method = "";
+					String URL = "";
+					//String params = "";
+					//String cookie = "";
+					String timeStr = "";
+					String timeDiff = "";
+					String comment = "";
+					String passphrase = "";
+					String request = "";
+					String response = "";
+
+					String[] splitted = line.split(",");
+					int idx = 0;
+
+					for (String ll : splitted)
+					{
+						String l = ll.substring(1, ll.length()-1);
+
+						switch(idx++)
+						{
+							case  0: host = l; break;
+							//case  1: method = l; break;
+							case  2: URL = l; break;
+							//case  3: params = l; break;
+							case  4: passphrase = l; break;
+							//case  5: cookie = l; break;
+							case  6: timeStr = l; break;
+							case  7: timeDiff = l; break;
+							case  8: comment = l; break;
+							case  9: request = l; break;
+							case 10: response = l; break;
+							default: break;
+						}
+					}
+
+					URL url = new URL(URL);
+					IHttpService httpService = helpers.buildHttpService(host, url.getPort(), url.getProtocol().equalsIgnoreCase("https"));
+					HttpRequestResponse rr = new HttpRequestResponse(httpService, helpers.base64Decode(request));
+					rr.setComment(comment);
+					IHttpRequestResponsePersisted irequestResponse = callbacks.saveBuffersToTempFiles(rr);
+					IRequestInfo irequestInfo = helpers.analyzeRequest(httpService, irequestResponse.getRequest());
+
+					IParameter d = helpers.getRequestParameter(irequestResponse.getRequest(), mainParameter);
+					if (d != null)
+					{
+						String urlDecoded = helpers.urlDecode(d.getValue());
+
+						if (isBase64(urlDecoded))
+						{
+							Date requestDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").parse(timeStr);
+							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), passphrase, requestDate);
+							entry.response = helpers.base64Decode(response);
+							entry.timeDiff = Long.parseLong(timeDiff);
+							int row = log.size();
+							if (log.add(entry)) fireTableRowsInserted(row, row);
+						}
+					}
+				}
+				br.close();
+			}
+		}
+		catch (Exception e)
+		{
+			throw new RuntimeException(e);
+		}
+	}
+
+	public void exportLoggerToCSV(String filename)
+	{
+		try
+		{
+			FileWriter fr = new FileWriter(filename);
+			fr.write("Host,Method,URL,Params,Passphrase,Cookies,RequestDate,ResponseTimeMS,Comment,Request,Response\n");
+			for (LogEntry entry : log) fr.write(entry.toCSV() + "\n");
+			fr.close();
+		}
+		catch (Exception e)
+		{
+			throw new RuntimeException(e);
+		}
+	}
 
 	public boolean isBase64(String s)
 	{
@@ -63,23 +191,11 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		return p.matcher(s).matches();
 	}
 
-	public static String byteArrayToHex(byte[] a)
+	public String byteArrayToHex(byte[] a)
 	{
 		StringBuilder sb = new StringBuilder(a.length * 2);
 		for(byte b: a) sb.append(String.format("%02x", b));
 		return sb.toString();
-	}
-
-	// mainPassphrase get/set
-
-	public static byte[] getPassphrase()
-	{
-		return mainPassphrase;
-	}
-
-	public static void setPassphrase(byte[] p)
-	{
-		mainPassphrase = p;
 	}
 
 	public byte[] getCurrentPassphrase(String dataHash)
@@ -87,30 +203,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
 
 		return (r.size() > 0 && r.get(0).passphrase.length() > 0) ? r.get(0).passphrase.getBytes() : mainPassphrase;
-	}
-
-	// mainParameter get/set
-
-	public static String getParameter()
-	{
-		return mainParameter;
-	}
-
-	public static void setParameter(String p)
-	{
-		mainParameter = p;
-	}
-
-	// currentSession get/set
-
-	public static List<IParameter> getCurrentSession()
-	{
-		return currentSession;
-	}
-
-	public static void setCurrentSession(List<IParameter> c)
-	{
-		currentSession = c;
 	}
 
 	// IBurpExtender
@@ -130,9 +222,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 		// if found, restore extension settings
 		String lastParameter = callbacks.loadExtensionSetting("JCryption_lastParameter");
-		if (lastParameter != null && lastParameter.length() > 0) setParameter(lastParameter);
+		if (lastParameter != null && lastParameter.length() > 0) mainParameter = lastParameter;
 		String lastPassphrase = callbacks.loadExtensionSetting("JCryption_lastPassphrase");
-		if (lastPassphrase != null && lastPassphrase.length() > 0) setPassphrase(helpers.stringToBytes(lastPassphrase));
+		if (lastPassphrase != null && lastPassphrase.length() > 0) mainPassphrase = helpers.stringToBytes(lastPassphrase);
 
 		// UI
 
@@ -154,9 +246,198 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				tabs.addTab("Response", responseViewer.getComponent());
 				loggerPane.setRightComponent(tabs);
 
-				preferencesPane = new PreferencesPane(callbacks);
-				AboutPane aboutPane = new AboutPane();
+				// Preferences UI
+				JPanel preferencesPane = new JPanel();
+				preferencesPane.setLayout(null);
 
+				final JToggleButton tglbtn_status = new JToggleButton("Disable");
+				tglbtn_status.setBounds(178, 26, 94, 32);
+				tglbtn_status.addItemListener(new ItemListener() {
+					public void itemStateChanged(ItemEvent e) {
+						if (e.getStateChange() == ItemEvent.SELECTED)
+						{
+							tglbtn_status.setText("Disable");
+							isEnabled = true;
+						}
+						else
+						{
+							tglbtn_status.setText("Enable");
+							isEnabled = false;
+						}
+					}
+				});
+
+				JLabel lbl_status = new JLabel("Status");
+				lbl_status.setBounds(104, 26, 50, 32);
+				preferencesPane.add(lbl_status);
+				tglbtn_status.setSelected(true);
+				preferencesPane.add(tglbtn_status);
+
+				JLabel lbl_parameter = new JLabel("Parameter");
+				lbl_parameter.setBounds(74, 102, 80, 32);
+				preferencesPane.add(lbl_parameter);
+
+				txt_parameter_value = new JTextField();
+				txt_parameter_value.setBounds(178, 102, 256, 32);
+				txt_parameter_value.setText(mainParameter);
+				preferencesPane.add(txt_parameter_value);
+				txt_parameter_value.setColumns(10);
+
+				JLabel lbl_passphrase = new JLabel("Passphrase");
+				lbl_passphrase.setBounds(66, 140, 86, 32);
+				preferencesPane.add(lbl_passphrase);
+
+				JButton btn_save = new JButton("Save");
+				btn_save.setBounds(366, 178, 68, 32);
+				btn_save.addActionListener(new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						String tmp1 = txt_parameter_value.getText();
+						if (tmp1.length() > 0)
+						{
+							mainParameter = tmp1;
+							callbacks.saveExtensionSetting("JCryption_lastParameter", tmp1);
+						}
+
+						String tmp2 = txt_passphrase_value.getText();
+						if (tmp2.length() > 0)
+						{
+							mainPassphrase = tmp2.getBytes();
+							callbacks.saveExtensionSetting("JCryption_lastPassphrase", tmp2);
+						}
+					}
+				});
+
+				txt_passphrase_value = new JTextField();
+				txt_passphrase_value.setBounds(178, 140, 256, 32);
+				txt_passphrase_value.setText(helpers.bytesToString(mainPassphrase));
+				preferencesPane.add(txt_passphrase_value);
+				txt_passphrase_value.setColumns(10);
+				preferencesPane.add(btn_save);
+
+				JButton btn_export = new JButton("Export Logs");
+				btn_export.addActionListener(new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						JFileChooser fc = new JFileChooser();
+						fc.setDialogTitle("Choose a file to save the Logger entries to");
+
+						FileFilter filter = new FileNameExtensionFilter("CSV file", "csv");
+						fc.addChoosableFileFilter(filter);
+						fc.setFileFilter(filter);
+						fc.setAcceptAllFileFilterUsed(false);
+
+						if (fc.showSaveDialog(null) == JFileChooser.APPROVE_OPTION)
+						{
+							if (fc.getSelectedFile().exists())
+							{
+								if (JOptionPane.showConfirmDialog(null,
+									"This file already exists. Are you sure ?",
+									"Confirm",
+									JOptionPane.YES_NO_OPTION,
+									JOptionPane.QUESTION_MESSAGE) == JOptionPane.NO_OPTION)
+								{
+									return;
+								}
+							}
+							String fname = fc.getSelectedFile().getAbsolutePath();
+							callbacks.issueAlert("Save CSV to " + fname);
+							exportLoggerToCSV(fname);
+							callbacks.issueAlert("CVS saved");
+						}
+					}
+				});
+				btn_export.setBounds(314, 64, 118, 32);
+				preferencesPane.add(btn_export);
+
+				JButton btn_import = new JButton("Import Logs");
+				btn_import.addActionListener(new ActionListener() {
+					public void actionPerformed(ActionEvent e) {
+						JFileChooser fc = new JFileChooser();
+						fc.setDialogTitle("Choose a CSV file to import");
+						fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+
+						FileFilter filter = new FileNameExtensionFilter("CSV file", "csv");
+						fc.addChoosableFileFilter(filter);
+						fc.setFileFilter(filter);
+						fc.setAcceptAllFileFilterUsed(false);
+
+						if (fc.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+							String fname = fc.getSelectedFile().getAbsolutePath();
+							callbacks.issueAlert("Loading CSV from " + fname);
+							importCSVToLogger(fname);
+							callbacks.issueAlert("CSV loaded");
+						}
+					}
+				});
+				btn_import.setBounds(178, 64, 118, 32);
+				preferencesPane.add(btn_import);
+
+				JLabel lbl_logger = new JLabel("Logger");
+				lbl_logger.setBounds(100, 64, 50, 32);
+				preferencesPane.add(lbl_logger);
+
+				isEnabled = true;
+
+				// About UI
+
+				JPanel aboutPane = new JPanel();
+				aboutPane.setLayout(null);
+
+				JLabel lbl_name = new JLabel("Name");
+				lbl_name.setBounds(104, 26, 45, 32);
+				aboutPane.add(lbl_name);
+
+				JLabel lbl_name_value = new JLabel(EXTENSION_NAME);
+				lbl_name_value.setBounds(178, 26, 130, 32);
+				aboutPane.add(lbl_name_value);
+
+				JLabel lbl_version = new JLabel("Version");
+				lbl_version.setBounds(90, 64, 60, 32);
+				aboutPane.add(lbl_version);
+
+				JLabel lbl_version_value = new JLabel(EXTENSION_VERSION);
+				lbl_version_value.setBounds(178, 64, 40, 32);
+				aboutPane.add(lbl_version_value);
+
+				JLabel lbl_author = new JLabel("Author");
+				lbl_author.setBounds(96, 102, 50, 32);
+				aboutPane.add(lbl_author);
+
+				JLabel lbl_author_value = new JLabel(EXTENSION_AUTHOR);
+				lbl_author_value.setBounds(178, 102, 205, 32);
+				aboutPane.add(lbl_author_value);
+
+				JLabel lbl_development = new JLabel("Development");
+				lbl_development.setBounds(53, 140, 98, 32);
+				aboutPane.add(lbl_development);
+
+				JLabel lbl_development_value = new JLabel(EXTENSION_URL);
+				lbl_development_value.setBounds(178, 140, 390, 32);
+				lbl_development_value.addMouseListener(new MouseAdapter() {
+					@Override
+					public void mouseClicked(MouseEvent arg0) {
+						Desktop desktop = Desktop.isDesktopSupported() ? Desktop.getDesktop() : null;
+						if (desktop != null && desktop.isSupported(Desktop.Action.BROWSE)) {
+							try {
+								desktop.browse(new URL(EXTENSION_URL).toURI());
+							} catch (Exception e) {
+								throw new RuntimeException(e);
+							}
+						}
+					}
+				});
+				lbl_development_value.setForeground(Color.BLUE);
+				aboutPane.add(lbl_development_value);
+
+				URL url = getClass().getResource(EXTENSION_IMG);
+				if (url != null)
+				{
+					ImageIcon imageIcon = new ImageIcon(url);
+					JLabel lbl_image = new JLabel(imageIcon);
+					lbl_image.setBounds(178, 178, 180, 108);
+					aboutPane.add(lbl_image);
+				}
+
+				// MainTab UI
 				mainTab = new JTabbedPane();
 				mainTab.addTab("Logger", null, loggerPane, null);
 				mainTab.addTab("Preferences", null, preferencesPane, null);
@@ -188,7 +469,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 	@Override
 	public int getColumnCount() {
-		return 9;
+		return 10;
 	}
 
 	@Override
@@ -213,6 +494,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			case 7:
 				return "Time";
 			case 8:
+				return "Response Time (ms)";
+			case 9:
 				return "Comment";
 			default:
 				return "";
@@ -245,8 +528,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			case 6:
 				return logEntry.cookie;
 			case 7:
-				return logEntry.time;
+				return logEntry.timeStr;
 			case 8:
+				return logEntry.timeDiff;
+			case 9:
 				return logEntry.comment;
 			default:
 				return "";
@@ -307,7 +592,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 		@Override
 		public boolean isEnabled(byte[] content, boolean isRequest) {
-			return isRequest && helpers.getRequestParameter(content, mainParameter) != null && preferencesPane.getPluginStatus() == true;
+			return isRequest && helpers.getRequestParameter(content, mainParameter) != null && isEnabled == true;
 		}
 
 		@Override
@@ -431,7 +716,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				{
 					byte[] request = iReqResp.getRequest();
 
-					List<IParameter> c = getCurrentSession();
+					List<IParameter> c = currentSession;
 					if (c != null && c.size() > 0)
 					{
 						for (IParameter parameter : c)
@@ -540,7 +825,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 					byte[] request = iReqResp.getRequest();
 
-					List<IParameter> c = getCurrentSession();
+					List<IParameter> c = currentSession;
 					if (c != null && c.size() > 0)
 					{
 						for (IParameter parameter : c)
@@ -599,7 +884,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	@Override
 	public void processProxyMessage(boolean messageIsRequest, IInterceptedProxyMessage message) {
 
-		if (preferencesPane.getPluginStatus())
+		if (isEnabled)
 		{
 			IHttpRequestResponse messageInfo = message.getMessageInfo();
 
@@ -619,7 +904,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
 							int ref = message.getMessageReference();
 
-							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), helpers.bytesToString(mainPassphrase)));
+							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), helpers.bytesToString(mainPassphrase), null));
 							fireTableRowsInserted(row, row);
 
 							refs.put(ref, row);
@@ -633,7 +918,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 								c.add(parameter);
 							}
 
-							if (c.size() > 0) setCurrentSession(c);
+							if (c.size() > 0) currentSession = c;
 						}
 					}
 				}
@@ -648,7 +933,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						String p = url.getFile().substring(4);
 						mainPassphrase = helpers.stringToBytes(p);
 						callbacks.saveExtensionSetting("JCryption_lastPassphrase", p);
-						preferencesPane.setPassphrase(p);
+						txt_passphrase_value.setText(p);
 						message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
 					}
 				}
@@ -658,6 +943,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				int ref = message.getMessageReference();
 				if (refs.containsKey(ref))
 				{
+					Date responseDate = new Date();
 					synchronized(log)
 					{
 						int row = refs.get(ref);
@@ -666,6 +952,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						{
 							IHttpRequestResponsePersisted irequestResponse = callbacks.saveBuffersToTempFiles(messageInfo);
 							r.response = irequestResponse.getResponse();
+							long tdiff = responseDate.getTime() - r.requestDate.getTime();
+							r.timeDiff = TimeUnit.MILLISECONDS.convert(tdiff, TimeUnit.MILLISECONDS);
 							log.set(row, r);
 							fireTableRowsUpdated(row, row);
 						}
@@ -712,7 +1000,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	@Override
 	public List<IScannerInsertionPoint> getInsertionPoints(IHttpRequestResponse baseRequestResponse) {
 
-		if (preferencesPane.getPluginStatus() == false) return null;
+		if (isEnabled == false) return null;
 
 		byte[] req = baseRequestResponse.getRequest();
 
@@ -798,14 +1086,11 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		{
 			String input = insertionPointPrefix + helpers.bytesToString(payload) + insertionPointSuffix;
 
-			byte[] p = getPassphrase();
-			String par = getParameter();
-
-			if (p != null)
+			if (mainPassphrase != null)
 			{
-				byte[] encrypted = JCryption.encrypt(p,input);
+				byte[] encrypted = JCryption.encrypt(mainPassphrase, input);
 				input = helpers.urlEncode(helpers.base64Encode(encrypted));
-				return helpers.updateParameter(baseRequest, helpers.buildParameter(par, input, currentParamType));
+				return helpers.updateParameter(baseRequest, helpers.buildParameter(mainParameter, input, currentParamType));
 			}
 
 			return null;
@@ -828,10 +1113,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	public void extensionUnloaded()
 	{
 		// save current extension settings
-		String tmp1 = getParameter();
-		if (tmp1 != null && tmp1.length() > 0) callbacks.saveExtensionSetting("JCryption_lastParameter", tmp1);
-		String tmp2 = helpers.bytesToString(getPassphrase());
-		if (tmp2 != null && tmp2.length() > 0) callbacks.saveExtensionSetting("JCryption_lastPassphrase", tmp2);
+		if (mainParameter != null && mainParameter.length() > 0) callbacks.saveExtensionSetting("JCryption_lastParameter", mainParameter);
+		String tmp = helpers.bytesToString(mainPassphrase);
+		if (tmp != null && tmp.length() > 0) callbacks.saveExtensionSetting("JCryption_lastPassphrase", tmp);
 	}
 
 	private class Table extends JTable
@@ -857,25 +1141,27 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		}
 	}
 
-	// class to hold details of each log entry
+	// handle logger data
 
-	private static class LogEntry
+	private class LogEntry
 	{
 		final IHttpRequestResponsePersisted requestResponse;
 		final IRequestInfo requestInfo;
 		byte[] response;
+		final Date requestDate;
+		long timeDiff = 0;
 
 		final String host;
 		final String method;
 		final URL url;
 		final byte[] params;
 		final String cookie;
-		final String time;
+		final String timeStr;
 		final String comment;
 		final String passphrase;
-		final String dataHash;
+		String dataHash;
 
-		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String passphrase)
+		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String passphrase, Date irequestDate)
 		{
 			this.requestResponse = irequestResponse;
 			this.requestInfo = irequestInfo;
@@ -895,10 +1181,32 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			}
 
 			this.cookie = tmpCookie;
-			this.time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
-			this.comment = requestResponse.getComment();
+			this.requestDate = (irequestDate == null) ? new Date() : irequestDate;
+			this.timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(this.requestDate);
+			this.comment = (requestResponse.getComment() != null) ? requestResponse.getComment() : "";
 			this.passphrase = passphrase;
 			this.dataHash = byteArrayToHex(JCryption.getMD5(ciphertext));
+		}
+
+		// convert entry to CSV
+		public String toCSV()
+		{
+			StringBuilder sb = new StringBuilder();
+
+			sb.append("\"" + this.host +
+				  "\",\"" + this.method +
+				  "\",\"" + this.url.toString() +
+				  "\",\"" + new String(this.params) +
+				  "\",\"" + this.passphrase +
+				  "\",\"" + this.cookie +
+				  "\",\"" + this.timeStr +
+				  "\",\"" + this.timeDiff +
+				  "\",\"" + this.comment +
+				  "\",\"" + helpers.base64Encode(helpers.bytesToString(this.requestResponse.getRequest())) +
+				  "\",\"" + helpers.base64Encode(helpers.bytesToString(this.response)) +
+					 "\"");
+
+			return sb.toString();
 		}
 	}
 

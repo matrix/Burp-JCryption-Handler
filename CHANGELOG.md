@@ -17,3 +17,11 @@ Initial release
 - Add support for save/load extension settings
 - Implement IExtensionStateListener interface, to save extension settings before unloading extension
 - Update BApp Store HTML description
+
+## v1.2 - 2017-07-06
+- Update UI
+- Refactor source code (move all UI code in BurpExtender.java, remove AboutPane and PreferencesPane files, remove almost alls static classes/methods/variables)
+- Add IHttpRequestResponse implementation
+- Add HTTP Response time calculation (in milliseconds) in Logger View
+- Add import/export functionalities for Logger View data, using CSV format (comma-delimited)
+- Update BApp Store HTML description
