@@ -25,3 +25,11 @@ Initial release
 - Add HTTP Response time calculation (in milliseconds) in Logger View
 - Add import/export functionalities for Logger View data, using CSV format (comma-delimited)
 - Update BApp Store HTML description
+
+## v1.3 - 2017-07-10
+- Update the encryption class to handle the jCryption library version 2.x (AES-CTR encrypted parameter)
+- Update UI (add 'clear' button for cleanup persistent extension settings)
+- Update UI (add drop-down combo box for select/show the current library version detected)
+- Update UI (add another column to keep and reuse the library version for each request/response)
+- Update the hijack javascript payload in order to make and XMLHttpRequest using the same protocol of web application (http or https)
+- Update BApp Store HTML description

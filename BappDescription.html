@@ -1,4 +1,4 @@
-<p>This extension provides a way to perform manual and/or automatic Security Assessment for Web Applications that using JCryption JavaScript library for encrypt data sent through HTTP methods (GET and POST).</p>
+<p>This extension provides a way to perform manual and/or automatic Security Assessment for Web Applications that using JCryption JavaScript library to encrypt data sent through HTTP methods (GET and POST).</p>
 <p>The main features are:</p>
 <ul>
   <li>Hijacking the JCryption JavaScript library in order to retrieve automatically the AES key (every time it is generated), used for encrypt form data</li>
@@ -8,11 +8,10 @@
   <li>Add a custom Logger View to keep track of all requests (with the related responses) that contain the encrypted parameter, save also the cookies and the AES key used for encrypt/decrypt data</li>
   <li>Add a preference panel in order to customize the parameter name used with JCryption to hold encrypted data, show the current AES key, enable/disable the extension without unload it</li>
   <li>Add custom menu entries, useful to send the requests to Repeater or Active Scanner. You can choose if you keep the original request session or make a new request using the last cookies/AES key saved</li>
-  <li>Automatically save and restore extension settings</li>
-  <li>Add support for Export and Import Logger View entries in/from CSV from the Preferences panel</li>
+  <li>Automatically save and restore extension persistent settings (you can clean up settings by Preferences panel)</li>
+  <li>Add support to Export/Import Logger View entries in/from CSV from the Preferences panel</li>
 </ul>
 
 <p>This extension requires Java version 8</p>
-<p>Tested only against JCryption v3.1.0 (lastest version, available <a href="https://github.com/HazAT/jCryption">here</a>)</p>
+<p>Tested against JCryption v2.x and v3.x (the original releases are available <a href="https://github.com/HazAT/jCryption/releases">here</a>)</p>
 <p>For more details, source code, bug reporting and whatever please refer to the author github page, available <a href="https://github.com/matrix/Burp-JCryption-Handler">here</a></p>
-
