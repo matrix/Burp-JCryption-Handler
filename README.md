@@ -1,5 +1,5 @@
 # Burp JCryption Handler
-Yes I known, JCryption (http://www.jcryption.org/) is a discontinued project ...
+Yes I known, jCryption (http://www.jcryption.org/) is a discontinued project ...
 <br>
 but I needed it, so why not write a plugin for Burp Suite (https://portswigger.net/burp/)
 <br>
