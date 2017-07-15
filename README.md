@@ -22,5 +22,9 @@ you can use the following URL
 <br>
 http://www.jcryption.org/#examples
 <br>
+Else if you want do it "at home" you can use that:
+<br>
+https://github.com/matrix/JCryptionAjaxExample
+<br>
 
 It's my first Burp Suite plugin, happy hacking ;)
