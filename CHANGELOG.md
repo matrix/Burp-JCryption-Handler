@@ -39,4 +39,5 @@ Initial release
 - Fix 2 out of bounds exceptions
 - Add Passive Scanner checks (Insecure Implementation of RSA Encryption in jCryption v1.x)
 - Fix some typos
+- Update FEATURES.md and README.md
 - Update BApp Store HTML description
