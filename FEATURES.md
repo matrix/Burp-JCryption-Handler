@@ -1,5 +1,5 @@
 # Features
-## Hooking JCryption JavaScript for automatic passphrase retrieval
+## Hijacking jCryption JavaScript for automatic passphrase retrieval
 JCryption hold the passphrase for encrypt the exchanged data with the web server in your browser memory.
 <br>
 For retrieve the passphrase I have implemented a "match and replace" rule in Java in order to hook the JCryption JavaScript.
@@ -62,6 +62,51 @@ That is the modified code :
 Note that the "setTimeout" is to delay the "success.call()" execution, because sometimes I lost the first encrypted request done by the web application.
 <br>
 In that way the plugin have the time to intercept the request to "localhost:1337" and import the current passphrase before the first usage by the Web Application :)
+
+## Hijacking JavaScript to exploit the Insecure Implementation of RSA Encryption in jCryption v1.x
+The jCryption v1.x use RSA Encryption like a block cipher and without padding with random values, so two plaintext encrypted with the same RSA Public key produce the same ciphertext.
+<br>
+In jCryption v2.x and v3.x I hijacked the javascript for retrive the encryption key but for v1.x I send the plaintext to "localhost:1337" before it is encrypted.
+<br>
+After retrive the plaintext I use the RSA Public key for encrypt and hash the result, so when the encrypted HTTP request reach the proxy I can match the hash of the ciphertext with the hash created before.
+<br>
+If the hashes match I using the plaintext directly instead decrypt the ciphertext with a passphrase (with RSA Encryption you can't do it).
+
+Following the hijacked javascript:
+
+```javascript
+	$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open("GET", "http://localhost:1337/?p="+encodeURIComponent(string)+"&s="+keyPair.chunkSize, true); x.send();
+		var charSum = 0;
+		for(var i = 0; i < string.length; i++){
+			charSum += string.charCodeAt(i);
+		}
+		var tag = '0123456789abcdef';
+		var hex = '';
+		hex += tag.charAt((charSum & 0xF0) >> 4) + tag.charAt(charSum & 0x0F);
+
+		var taggedString = hex + string;
+
+		var encrypt = [];
+		var j = 0;
+
+		while (j < taggedString.length) {
+			encrypt[j] = taggedString.charCodeAt(j);
+			j++;
+		}
+
+		while (encrypt.length % keyPair.chunkSize !== 0) {
+			encrypt[j++] = 0;
+		}
+
+		function encryption(encryptObject) {
+[...]
+```
+The 's' parameter, sent along with the plaintext to "localhost:1337" is the "chunkSize", used for split the plaintext in "chunks".
+<br>
+The encrypted data will have the following format:
+<br>
+block(01) || '+' || block(02) || '+' || ... || block(N-1) || '+' || block(N)
+<br>
 
 ## New Burp Suite tab (logger, preferences, about)
 The plugin add some custom tabs to Burp Suite in order to:
