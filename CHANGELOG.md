@@ -41,3 +41,9 @@ Initial release
 - Fix some typos
 - Update FEATURES.md and README.md
 - Update BApp Store HTML description
+
+## v1.4.1 - 2017-07-16
+- Update the encryption class to handle the encrypt using the RSA Public Key, used in jCryption library version 1.x
+- Add full support for handling jCryption v1.x by exploit the Insecure RSA Implementation
+- Update FEATURES.md
+- Update BApp Store HTML description
