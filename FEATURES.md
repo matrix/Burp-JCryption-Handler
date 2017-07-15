@@ -121,4 +121,10 @@ When you make a new session you have also a new passphrase, then the old request
 In that case you need decrypt the old request with the associated (oldest) passphrases and then encrypt with the current.
 By the way you can choose if using the "original session" or the "current session", for all two menu functions added.
 
+## Passive Scanner
+By implementing the *IScannerCheck* and the *IScanIssue* it was possible add the detection/usage of jCryption v1.x in order to add a new issue to your Security Report ;)
+<br>
+The jCryption v1.x have a known Security Issue, related to a bad implementation of RSA Encryption. You can see the Security Advisory <a href='http://www.securityfocus.com/archive/1/520683'>here</a>
+<br>
+
 (To be continued)
