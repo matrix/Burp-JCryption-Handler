@@ -9,7 +9,7 @@ public class JCryption_InsecureRSAEncryption implements IScanIssue {
 	private IHttpRequestResponse[] httpRequestResponses;
 	private String RSAPublicKeyEncoded;
 
-	private final String issueName = "Insecure Implementation of RSA Encryption (JCryption v1.x)";
+	private final String issueName = "Insecure Implementation of RSA Encryption (jCryption v1.x)";
 	private final String severity = "Medium";
 	private String confidence;
 
