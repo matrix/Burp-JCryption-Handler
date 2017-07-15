@@ -698,32 +698,33 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 			if (content != null)
 			{
+				int check = 0;
 				IParameter p = helpers.getRequestParameter(content, mainParameter);
 				String urlDecoded = helpers.urlDecode(p.getValue());
+				byte[] ciphertext = "".getBytes();
+				String dataHash = "";
+
 				if (isBase64(urlDecoded))
 				{
-					byte[] ciphertext = helpers.base64Decode(urlDecoded);
+					ciphertext = helpers.base64Decode(urlDecoded);
+					dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
+				}
 
-					String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
+				currentPassphrase = getCurrentPassphrase(dataHash);
 
-					currentPassphrase = getCurrentPassphrase(dataHash);
+				if (currentPassphrase != null && currentPassphrase.length > 0)
+				{
+					currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
+					currentParamType = p.getType();
+					byte[] decrypted = JCryption.decrypt(currentPassphrase, ciphertext, currentJSVersion);
 
-					if (currentPassphrase != null && currentPassphrase.length > 0)
-					{
-						currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
-						currentParamType = p.getType();
-						byte[] decrypted = JCryption.decrypt(currentPassphrase, ciphertext, currentJSVersion);
-
-						txtInput.setText(decrypted);
-						txtInput.setEditable(editable);
-					}
+					txtInput.setText(decrypted);
+					txtInput.setEditable(editable);
 				}
 				else
 				{
-					byte[] ciphertext = helpers.stringToBytes(p.getValue());
-
-					String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
-
+					ciphertext = helpers.stringToBytes(p.getValue());
+					dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
 					currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
 
 					if (currentJSVersion == 1)
@@ -732,15 +733,11 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						String plaintext = getPlaintextFromLogger(dataHash);
 						String tmpS = getSFromLogger(dataHash);
 
-						if (tmpS != null && tmpS.length() > 0)
+						if (tmpS != null && tmpS.length() > 0 && plaintext != null && plaintext.length() > 0)
 						{
 							currentS = Integer.parseInt(tmpS);
-
-							if (plaintext != null && plaintext.length() > 0)
-							{
-								txtInput.setText(helpers.stringToBytes(plaintext));
-								txtInput.setEditable(editable);
-							}
+							txtInput.setText(helpers.stringToBytes(plaintext));
+							txtInput.setEditable(editable);
 						}
 					}
 				}
@@ -1029,7 +1026,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				{
 					String urlDecoded = helpers.urlDecode(d.getValue());
 
-					if (isBase64(urlDecoded))
+					if (isBase64(urlDecoded) && jCryption_version != 1)
 					{
 						synchronized(log)
 						{
@@ -1147,7 +1144,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						{
 							int ref = message.getMessageReference();
 							generateKeypairRefs.add(ref);
-							//callbacks.printOutput("Found 'generateKeypair' request : " + ref);
 							message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
 						}
 					}
@@ -1181,7 +1177,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 					if (generateKeypairRefs.contains(ref))
 					{
-						//callbacks.printOutput("Found 'generateKeypair' response, parsing data");
 						String response = new String(messageInfo.getResponse());
 						String match_v1 = new String("\"([^{}\":,]+)?\":\"([^{}\":,]+)?\"");
 						Pattern pattern_v1 = Pattern.compile(match_v1);
@@ -1193,7 +1188,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							{
 								String k = matcher_v1.group(1);
 								String v = matcher_v1.group(2);
-								//callbacks.printOutput("Match " + k + " = " + v);
 								if (mainKeypair.containsKey(k)) mainKeypair.remove(k);
 								mainKeypair.put(k, v);
 							}
@@ -1258,6 +1252,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 									message.getMessageInfo().setComment("Hijacked by " + EXTENSION_NAME);
 									jCryption_version = 1;
 									js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
+									mainPassphrase = "".getBytes();
+									txt_passphrase_value.setText(helpers.bytesToString(mainPassphrase));
 									message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
 								}
 							}
@@ -1384,38 +1380,72 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 		IParameter dataParameter = helpers.getRequestParameter(req, mainParameter);
 
-		if (dataParameter == null || mainPassphrase == null)
-		{
-			return null;
-		}
+		if (dataParameter == null) return null;
 
 		String urlDecoded = helpers.urlDecode(dataParameter.getValue());
-		if (!isBase64(urlDecoded)) return null;
 
-		// if the parameter is present, add custom insertion points for it
-		List<IScannerInsertionPoint> insertionPoints = new ArrayList<IScannerInsertionPoint>();
-
-		byte[] decrypted = JCryption.decrypt(mainPassphrase, helpers.base64Decode(urlDecoded), jCryption_version);
-
-		// rebuild decrypted request
-		String param = helpers.bytesToString(decrypted);
-
-		IParameter d = helpers.buildParameter(mainParameter, param, dataParameter.getType());
-		byte[] req2 = helpers.updateParameter(req, d);
-		String req3 = helpers.bytesToString(req2).replaceAll(mainParameter+"=", "");
-
-		// retrieve request parameters
-		IRequestInfo requestInfo = helpers.analyzeRequest(helpers.stringToBytes(req3));
-		List<IParameter> requestParams = requestInfo.getParameters();
-
-		for (IParameter parameter : requestParams)
+		if (isBase64(urlDecoded) && mainPassphrase != null && jCryption_version != 1)
 		{
-			if (parameter.getType() != IParameter.PARAM_BODY && parameter.getType() != IParameter.PARAM_URL) continue;
+			// if the parameter is present, add custom insertion points for it
+			List<IScannerInsertionPoint> insertionPoints = new ArrayList<IScannerInsertionPoint>();
 
-			insertionPoints.add(new InsertionPoint(req, param, parameter));
+			byte[] decrypted = JCryption.decrypt(mainPassphrase, helpers.base64Decode(urlDecoded), jCryption_version);
+
+			// rebuild decrypted request
+			String param = helpers.bytesToString(decrypted);
+
+			IParameter d = helpers.buildParameter(mainParameter, param, dataParameter.getType());
+			byte[] req2 = helpers.updateParameter(req, d);
+			String req3 = helpers.bytesToString(req2).replaceAll(mainParameter+"=", "");
+
+			// retrieve request parameters
+			IRequestInfo requestInfo = helpers.analyzeRequest(helpers.stringToBytes(req3));
+			List<IParameter> requestParams = requestInfo.getParameters();
+
+			for (IParameter parameter : requestParams)
+			{
+				if (parameter.getType() != IParameter.PARAM_BODY && parameter.getType() != IParameter.PARAM_URL) continue;
+
+				insertionPoints.add(new InsertionPoint(req, param, parameter, null));
+			}
+
+			return insertionPoints;
+		}
+		else if (jCryption_version == 1 && mainKeypair.size() == 3)
+		{
+			// if the parameter is present, add custom insertion points for it
+			List<IScannerInsertionPoint> insertionPoints = new ArrayList<IScannerInsertionPoint>();
+
+			// get plaintext from Logger
+			byte[] ciphertext = helpers.stringToBytes(dataParameter.getValue());
+
+			String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
+
+			int currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
+
+			if (currentJSVersion != jCryption_version) return null;
+
+			// rebuild decrypted request
+			String param = getPlaintextFromLogger(dataHash);
+
+			IParameter d = helpers.buildParameter(mainParameter, param, dataParameter.getType());
+			byte[] req2 = helpers.updateParameter(req, d);
+			String req3 = helpers.bytesToString(req2).replaceAll(mainParameter+"=", "");
+
+			// retrieve request parameters
+			IRequestInfo requestInfo = helpers.analyzeRequest(helpers.stringToBytes(req3));
+			List<IParameter> requestParams = requestInfo.getParameters();
+
+			for (IParameter parameter : requestParams)
+			{
+				if (parameter.getType() != IParameter.PARAM_BODY && parameter.getType() != IParameter.PARAM_URL) continue;
+				insertionPoints.add(new InsertionPoint(req, param, parameter, dataHash));
+			}
+
+			return insertionPoints;
 		}
 
-		return insertionPoints;
+		return null;
 	}
 
 	// IScannerInsertionPoint
@@ -1427,11 +1457,14 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		private String baseValue;
 		private String insertionPointSuffix;
 		private byte currentParamType;
+		private String dataHash;
 
-		InsertionPoint(byte[] baseRequest, String dataParameter, IParameter parameter)
+		InsertionPoint(byte[] baseRequest, String dataParameter, IParameter parameter, String idataHash)
 		{
 			this.baseRequest = baseRequest;
 			this.currentParamType = parameter.getType();
+
+			if (idataHash != null) this.dataHash = idataHash;
 
 			int start = dataParameter.indexOf(parameter.getName()) + parameter.getName().length() + 1;
 			insertionPointPrefix = dataParameter.substring(0, start);
@@ -1466,7 +1499,20 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			{
 				String input = insertionPointPrefix + helpers.bytesToString(payload) + insertionPointSuffix;
 
-				if (mainPassphrase != null)
+				if (dataHash != null)
+				{
+					// get currentS
+					String tmpS = getSFromLogger(dataHash);
+
+					if (tmpS != null && tmpS.length() > 0)
+					{
+						int currentS = Integer.parseInt(tmpS);
+						String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(input.getBytes("UTF-8")), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), currentS);
+						return helpers.updateParameter(baseRequest, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
+					}
+					return null;
+				}
+				else if (mainPassphrase != null)
 				{
 					byte[] encrypted = JCryption.encrypt(mainPassphrase, input.getBytes("UTF-8"), jCryption_version);
 					input = helpers.urlEncode(helpers.base64Encode(encrypted));
