@@ -14,11 +14,18 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.FileReader;
+import java.math.BigInteger;
 import java.net.URL;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.interfaces.RSAPublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.RSAPublicKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,12 +68,12 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 
-public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerInsertionPointProvider, IProxyListener, IExtensionStateListener {
+public class BurpExtender extends AbstractTableModel implements IBurpExtender, ITab, IMessageEditorController, IMessageEditorTabFactory, IContextMenuFactory, IScannerCheck, IScannerInsertionPointProvider, IProxyListener, IExtensionStateListener {
 
 	private static final long serialVersionUID = 1L;
 
 	public final String EXTENSION_NAME    = "JCryption Handler";
-	public final String EXTENSION_VERSION = "1.3";
+	public final String EXTENSION_VERSION = "1.4";
 	public final String EXTENSION_AUTHOR  = "Gabriele Gristina aka Matrix";
 	public final String EXTENSION_URL     = "https://www.github.com/matrix/Burp-JCryption-Handler";
 	public final String EXTENSION_IMG     = "/img/matrix_systemFailure.gif";
@@ -1099,6 +1106,111 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		}
 	}
 
+	// IScannerCheck
+
+	private List<IScanIssue> doPassivejCryptionInsecureRSAEncryption(IHttpRequestResponse baseRequestResponse)
+	{
+		List<IScanIssue> scanIssueList = new ArrayList<IScanIssue>();
+
+		byte[] response = baseRequestResponse.getResponse();
+		IResponseInfo x = helpers.analyzeResponse(response);
+		int check = 0;
+
+		// search javascript
+		List<String> hdr = x.getHeaders();
+		for (String s : hdr) {
+			if (s.contains("javascript") && s.contains("Content-Type"))
+			{
+				check = 1;
+				break;
+			}
+		}
+
+		// search keypair
+		if (check == 0)
+		{
+			String r = new String(response);
+			String match_v1 = new String("\"([^{}\":,]+)?\":\"([^{}\":,]+)?\"");
+			Pattern pattern_v1 = Pattern.compile(match_v1);
+			Matcher matcher_v1 = pattern_v1.matcher(r);
+			Map<String,String> keypair = new HashMap<>();
+
+			while (matcher_v1.find())
+			{
+				if (matcher_v1.groupCount() == 2)
+				{
+					String k = matcher_v1.group(1);
+					String v = matcher_v1.group(2);
+					keypair.put(k, v);
+				}
+			}
+
+			// found keypair
+			if (keypair.size() == 3)
+			{
+				String keyStr = JCryption.getRSAPubKey(keypair.get("e"), keypair.get("n")).toString();
+
+				// found jCryption v1.x
+				IScanIssue i = new JCryption_InsecureRSAEncryption(new IHttpRequestResponse[] { baseRequestResponse }, baseRequestResponse.getHttpService(), helpers.analyzeRequest(baseRequestResponse).getUrl(), keyStr);
+				if (i != null) scanIssueList.add(i);
+			}
+		}
+		else
+		{
+			// extract body from response
+			int bodyOffset = x.getBodyOffset();
+			String r = helpers.bytesToString(response);
+
+			byte[] res = r.substring(bodyOffset).getBytes();
+
+			// first check if md5 match with original js md5
+			final String jCryptionv12Digest = "c12d66378f79ef99bbba40bd17f89061";
+			final String jCryptionv11Digest = "62fc6d6dc4864139e3e390fa1fa497e9";
+			final String jCryptionv10Digest = "9eaabd71bfeda2707488e6937377b8c2";
+
+			byte[] jsDigest = JCryption.getMD5(res);
+			String strDigest = byteArrayToHex(jsDigest);
+
+			if (strDigest.equals(jCryptionv10Digest) ||
+				strDigest.equals(jCryptionv11Digest) ||
+				strDigest.equals(jCryptionv12Digest))
+			{
+				// found jCryption v1.x by md5 hash matching
+				IScanIssue i = new JCryption_InsecureRSAEncryption(new IHttpRequestResponse[] { baseRequestResponse }, baseRequestResponse.getHttpService(), helpers.analyzeRequest(baseRequestResponse).getUrl(), true);
+				if (i != null) scanIssueList.add(i);
+			}
+			else
+			{
+				// proceed with content inspection
+				String match_v1 = new String("$.jCryption.encrypt = function(string,keyPair,callback) {");
+				if (r.contains(match_v1))
+				{
+					IScanIssue i = new JCryption_InsecureRSAEncryption(new IHttpRequestResponse[] { baseRequestResponse }, baseRequestResponse.getHttpService(), helpers.analyzeRequest(baseRequestResponse).getUrl(), false);
+					if (i != null) scanIssueList.add(i);
+				}
+			}
+		}
+
+		return scanIssueList;
+	}
+
+	@Override
+	public List<IScanIssue> doPassiveScan(IHttpRequestResponse baseRequestResponse) {
+		List<IScanIssue> scanIssueList = new ArrayList<IScanIssue>();
+		scanIssueList.addAll(doPassivejCryptionInsecureRSAEncryption(baseRequestResponse));
+		return scanIssueList;
+	}
+
+	@Override
+	public List<IScanIssue> doActiveScan(IHttpRequestResponse baseRequestResponse, IScannerInsertionPoint insertionPoint) {
+		return null;
+	}
+
+	@Override
+	public int consolidateDuplicateIssues(IScanIssue existingIssue, IScanIssue newIssue) {
+		return (existingIssue.getIssueName().equals(newIssue.getIssueName()) ? -1 : 0);
+	}
+
 	// IScannerInsertionPointProvider
 
 	@Override
@@ -1378,6 +1490,26 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				SecretKey key = new SecretKeySpec(k, "AES");
 				return key;
 			} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public static PublicKey getRSAPubKey(String exp, String mod)
+		{
+			try {
+				// set RSA Exponent and Modulus
+				BigInteger exponent = new BigInteger(exp, 16);
+				BigInteger modulus = new BigInteger(mod, 16);
+
+				// gen RSA Public Key from Exponent and Modulus
+				RSAPublicKeySpec spec = new RSAPublicKeySpec(modulus, exponent);
+				KeyFactory kf = KeyFactory.getInstance("RSA");
+				RSAPublicKey k = (RSAPublicKey) kf.generatePublic(spec);
+
+				// get RSA Public Key Encoded
+				PublicKey pk = kf.generatePublic(new X509EncodedKeySpec(k.getEncoded()));
+				return pk;
+			} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
 				throw new RuntimeException(e);
 			}
 		}
