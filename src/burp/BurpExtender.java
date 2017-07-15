@@ -242,6 +242,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 		callbacks.setExtensionName(EXTENSION_NAME);
 
+		callbacks.registerScannerCheck(this);
 		callbacks.registerScannerInsertionPointProvider(this);
 		callbacks.registerMessageEditorTabFactory(this);
 		callbacks.registerContextMenuFactory(this);
