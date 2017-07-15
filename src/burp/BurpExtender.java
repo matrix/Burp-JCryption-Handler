@@ -322,7 +322,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 				js_version_combo = new JComboBox<>(js_versions);
 				js_version_combo.setBounds(178, 178, 48, 32);
-				js_version_combo.setSelectedIndex(3 - jCryption_version);
+				js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
 				js_version_combo.addActionListener(new ActionListener() {
 					public void actionPerformed(ActionEvent e) {
 						int sel = (int)js_version_combo.getSelectedItem();
@@ -376,7 +376,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						callbacks.saveExtensionSetting("JCryption_lastPassphrase", "");
 
 						jCryption_version = 3;
-						js_version_combo.setSelectedIndex(3 - jCryption_version);
+						js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
 
 						callbacks.saveExtensionSetting("JCryption_lastVersion", Integer.toString(jCryption_version));
 					}
@@ -1079,7 +1079,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							message.getMessageInfo().setComment("Hijacked by " + EXTENSION_NAME);
 
 							jCryption_version = 3;
-							js_version_combo.setSelectedIndex(3 - jCryption_version);
+							js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
 
 							// jCryption v2 using AES-CTR-256 encryption algorithm, check it ;)
 							String match_v2 = new String("Aes.Ctr.encrypt(");
@@ -1088,7 +1088,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							if (matcher_v2.find())
 							{
 								jCryption_version = 2;
-								js_version_combo.setSelectedIndex(3 - jCryption_version);
+								js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
 							}
 
 							message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
@@ -1364,7 +1364,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				byte[] password = passphrase;
 				int nBytes = 32;
 				byte[] pwBytes = new byte[nBytes];
-				System.arraycopy(password, 0, pwBytes, 0, nBytes);
+				System.arraycopy(password, 0, pwBytes, 0, (password.length >= nBytes) ? nBytes : password.length);
 
 				Cipher cipher = Cipher.getInstance("AES/ECB/NoPadding");
 				SecretKeySpec aesECBkey = new SecretKeySpec(pwBytes, "AES");
