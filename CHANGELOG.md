@@ -33,3 +33,10 @@ Initial release
 - Update UI (add another column to keep and reuse the library version for each request/response)
 - Update the hijack javascript payload in order to make and XMLHttpRequest using the same protocol of web application (http or https)
 - Update BApp Store HTML description
+
+## v1.4 - 2017-07-15
+- Update the encryption class to handle the RSA Public Key parsing, used in jCryption library version 1.x
+- Fix 2 out of bounds exceptions
+- Add Passive Scanner checks (Insecure Implementation of RSA Encryption in jCryption v1.x)
+- Fix some typos
+- Update BApp Store HTML description
