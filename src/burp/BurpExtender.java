@@ -179,7 +179,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 						if (isBase64(urlDecoded))
 						{
 							Date requestDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").parse(timeStr);
-							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, null, passphrase, requestDate, Integer.parseInt(version));
+//							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, null, passphrase, requestDate, Integer.parseInt(version));
+							LogEntry entry = new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, passphrase, requestDate, Integer.parseInt(version));
 							entry.response = helpers.base64Decode(response);
 							entry.timeDiff = Long.parseLong(timeDiff);
 							int row = log.size();
@@ -236,13 +237,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
 
 		return (r.size() > 0 && r.get(0).params.length > 0) ? helpers.bytesToString(r.get(0).params) : "";
-	}
-
-	public String getSFromLogger(String dataHash)
-	{
-		List<LogEntry> r = log.stream().filter(item -> item.dataHash.equals(dataHash)).collect(Collectors.toList());
-
-		return (r.size() > 0 && r.get(0).v1_s.length() > 0) ? r.get(0).v1_s : "";
 	}
 
 	// IBurpExtender
@@ -665,7 +659,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		private byte currentParamType;
 		private byte[] currentPassphrase;
 		private int currentJSVersion = 0;
-		private int currentS = 0;
 
 		public MessageEditorTab(IMessageEditorController controller, boolean editable)
 		{
@@ -731,11 +724,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					{
 						currentParamType = p.getType();
 						String plaintext = getPlaintextFromLogger(dataHash);
-						String tmpS = getSFromLogger(dataHash);
-
-						if (tmpS != null && tmpS.length() > 0 && plaintext != null && plaintext.length() > 0)
+						if (plaintext != null && plaintext.length() > 0)
 						{
-							currentS = Integer.parseInt(tmpS);
 							txtInput.setText(helpers.stringToBytes(plaintext));
 							txtInput.setEditable(editable);
 						}
@@ -752,16 +742,16 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			{
 				byte[] plaintext = txtInput.getText();
 
-				if (currentPassphrase != null && currentJSVersion != 0)
+				if (currentJSVersion == 1)
+				{
+					String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(plaintext), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")));
+					return helpers.updateParameter(currentMessage, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
+				}
+				else if (currentPassphrase != null)
 				{
 					byte[] ciphertext = JCryption.encrypt(currentPassphrase, plaintext, currentJSVersion);
 					String input = helpers.urlEncode(helpers.base64Encode(ciphertext));
 					return helpers.updateParameter(currentMessage, helpers.buildParameter(mainParameter, input, currentParamType));
-				}
-				else if (currentJSVersion == 1 && currentS != 0)
-				{
-					String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(plaintext), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), currentS);
-					return helpers.updateParameter(currentMessage, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
 				}
 			}
 
@@ -1035,7 +1025,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
 							int ref = message.getMessageReference();
 
-							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, null, helpers.bytesToString(mainPassphrase), null, jCryption_version));
+							log.add(new LogEntry(irequestResponse, irequestInfo, helpers.base64Decode(urlDecoded), null, helpers.bytesToString(mainPassphrase), null, jCryption_version));
 							fireTableRowsInserted(row, row);
 
 							refs.put(ref, row);
@@ -1067,13 +1057,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 								IRequestInfo irequestInfo = helpers.analyzeRequest(irequestResponse);
 								int ref = message.getMessageReference();
 
-								// get back s+plaintext from RSAData value
-								String tmp = RSAData.get(pStr);
-								int sOff = tmp.indexOf(',');
-								String plaintext = tmp.substring(sOff+1);
-								String s = tmp.substring(0, sOff);
+								// get back plaintext from RSAData value
+								String plaintext = RSAData.get(pStr);
 
-								log.add(new LogEntry(irequestResponse, irequestInfo, helpers.stringToBytes(plaintext), pStr, s, null, null, jCryption_version));
+								log.add(new LogEntry(irequestResponse, irequestInfo, helpers.stringToBytes(plaintext), pStr, null, null, jCryption_version));
 								fireTableRowsInserted(row, row);
 
 								refs.put(ref, row);
@@ -1116,15 +1103,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							{
 								try
 								{
-									IParameter s = helpers.getRequestParameter(messageInfo.getRequest(), "s");
-									if (s != null && s.getValue().length() > 0)
-									{
-										String plaintext = URLDecoder.decode(p.getValue(), "UTF-8");
-										String ciphertext = JCryption.encrypt_v1(plaintext, JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), Integer.parseInt(s.getValue()));
-
-										// add ciphertext and s+plaintext to RSAData
-										RSAData.put(ciphertext,s.getValue() + "," + plaintext);
-									}
+									String plaintext = URLDecoder.decode(p.getValue(), "UTF-8");
+									String ciphertext = JCryption.encrypt_v1(plaintext, JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")));
+									// add ciphertext and plaintext to RSAData
+									RSAData.put(ciphertext,plaintext);
 								}
 								catch (UnsupportedEncodingException e) {
 									e.printStackTrace();
@@ -1242,7 +1224,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 							{
 								// jCryption v1 using plain RSA encryption algorithm, check it ;)
 								String match_v1 = new String("$.jCryption.encrypt = function(string,keyPair,callback) {");
-								String replace_v1 = new String("\\$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open(\"GET\", \"" + (isHTTPS ? "https" : "http") + "://localhost:1337/?p=\"+encodeURIComponent(string)+\"&s=\"+keyPair.chunkSize, true); x.send();");
+								String replace_v1 = new String("\\$.jCryption.encrypt = function(string,keyPair,callback) { var x = new XMLHttpRequest(); x.open(\"GET\", \"" + (isHTTPS ? "https" : "http") + "://localhost:1337/?p=\"+encodeURIComponent(string), true); x.send();");
 								if (response.contains(match_v1) && !response.contains(replace_v1))
 								{
 									String r = response.replaceFirst(Pattern.quote(match_v1), replace_v1);
@@ -1306,7 +1288,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			// found keypair
 			if (keypair.size() == 3)
 			{
-				String keyStr = JCryption.getRSAPubKey(keypair.get("e"), keypair.get("n")).toString();
+				String keyStr = JCryption.getPubKey(JCryption.getRSAPubKey(keypair.get("e"), keypair.get("n"))).toString();
 
 				// found jCryption v1.x
 				IScanIssue i = new JCryption_InsecureRSAEncryption(new IHttpRequestResponse[] { baseRequestResponse }, baseRequestResponse.getHttpService(), helpers.analyzeRequest(baseRequestResponse).getUrl(), keyStr);
@@ -1501,16 +1483,8 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 				if (dataHash != null)
 				{
-					// get currentS
-					String tmpS = getSFromLogger(dataHash);
-
-					if (tmpS != null && tmpS.length() > 0)
-					{
-						int currentS = Integer.parseInt(tmpS);
-						String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(input.getBytes("UTF-8")), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")), currentS);
-						return helpers.updateParameter(baseRequest, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
-					}
-					return null;
+					String ciphertext = JCryption.encrypt_v1(helpers.bytesToString(input.getBytes("UTF-8")), JCryption.getRSAPubKey(mainKeypair.get("e"), mainKeypair.get("n")));
+					return helpers.updateParameter(baseRequest, helpers.buildParameter(mainParameter, ciphertext, currentParamType));
 				}
 				else if (mainPassphrase != null)
 				{
@@ -1589,14 +1563,13 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		final URL url;
 		final byte[] params;
 		final String v1_params;
-		final String v1_s;
 		final String cookie;
 		final String timeStr;
 		final String comment;
 		final String passphrase;
 		String dataHash;
 
-		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String v1_params, String v1_s, String passphrase, Date irequestDate, int version)
+		public LogEntry(IHttpRequestResponsePersisted irequestResponse, IRequestInfo irequestInfo, byte[] ciphertext, String v1_params, String passphrase, Date irequestDate, int version)
 		{
 			this.version = version;
 			this.requestResponse = irequestResponse;
@@ -1610,7 +1583,6 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			else              this.params = (passphrase.getBytes().length > 0) ? JCryption.decrypt(passphrase.getBytes(), ciphertext, jCryption_version) : "".getBytes();
 
 			this.v1_params = v1_params;
-			this.v1_s = v1_s;
 
 			List<IParameter> requestParams = requestInfo.getParameters();
 
@@ -1718,7 +1690,22 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 			}
 		}
 
-		public static PublicKey getRSAPubKey(String exp, String mod)
+		public static PublicKey getPubKey(RSAPublicKey rsaPub)
+		{
+			try {
+				RSAPublicKeySpec spec = new RSAPublicKeySpec(rsaPub.getModulus(), rsaPub.getPublicExponent());
+				KeyFactory kf = KeyFactory.getInstance("RSA");
+				RSAPublicKey k = (RSAPublicKey) kf.generatePublic(spec);
+
+				// get Public Key Encoded
+				PublicKey pk = kf.generatePublic(new X509EncodedKeySpec(k.getEncoded()));
+				return pk;
+			} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+				throw new RuntimeException(e);
+			}
+		}
+
+		public static RSAPublicKey getRSAPubKey(String exp, String mod)
 		{
 			try {
 				// set RSA Exponent and Modulus
@@ -1729,16 +1716,13 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				RSAPublicKeySpec spec = new RSAPublicKeySpec(modulus, exponent);
 				KeyFactory kf = KeyFactory.getInstance("RSA");
 				RSAPublicKey k = (RSAPublicKey) kf.generatePublic(spec);
-
-				// get RSA Public Key Encoded
-				PublicKey pk = kf.generatePublic(new X509EncodedKeySpec(k.getEncoded()));
-				return pk;
+				return k;
 			} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
 				throw new RuntimeException(e);
 			}
 		}
 
-		public static String encrypt_v1(String plaintext, PublicKey publicKey, int chunkSize)
+		public static String encrypt_v1(String plaintext, RSAPublicKey rsaPublicKey)
 		{
 			try
 			{
@@ -1754,6 +1738,9 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 				String hex = "" + hex1 + hex2;
 				String taggedString = hex + plaintext;
 
+				// calculate chunkSize (rsa bitLen / 8 - checksumLen)
+				int chunkSize = rsaPublicKey.getModulus().bitLength() / 8 - 2;
+
 				// padding with zeros to fill chunkSize
 				byte[] tmp = taggedString.getBytes();
 
@@ -1765,22 +1752,20 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 
 				// initializing RSA/ECB/NoPadding cipher with Public Key
 				Cipher cipher = Cipher.getInstance("RSA/ECB/NoPadding");
+				// get PublicKey from RSAPublicKey
+				PublicKey publicKey = getPubKey(rsaPublicKey);
+
 				cipher.init(Cipher.ENCRYPT_MODE, publicKey);
 
 				// splitting the plaintext due to RSA/ECB restriction on plaintext maxlength
 				int rounds = len / chunkSize;
 				int bs = cipher.getOutputSize(chunkSize);
-				byte[] ciphertext = new byte[(bs * rounds) + (rounds-1)];
 				byte[] message = new byte[chunkSize];
 				String cipherString = "";
 
 				for (int x = 0; x < rounds; x++)
 				{
-					if (x > 0)
-					{
-						ciphertext[(x * bs) + (x-1)] = 0x2b; // add '+'
-						cipherString += '+';
-					}
+					if (x > 0) cipherString += '+';
 
 					// get chunk and reverse it
 					System.arraycopy(encrypt, (x * chunkSize), message, 0, chunkSize);
@@ -1795,13 +1780,10 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 					byte[] cipherBlock = cipher.doFinal(message, 0, message.length);
 
 					// update ciphertext
-					System.arraycopy(cipherBlock, 0, ciphertext, (x * bs) + x, bs);
 					cipherString += byteArrayToHex(cipherBlock);
 				}
 
-				// ciphertext = block(01) || '+' || block(02) || '+' || ... || block(N-1) || '+' || block(N)
-				// return Base64.getEncoder().encodeToString(cipherText);
-				// return ciphertext;
+				// return Base64.getEncoder().encodeToString(cipherString);
 				return cipherString;
 			} catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException e) {
 				throw new RuntimeException(e);
@@ -1832,7 +1814,7 @@ public class BurpExtender extends AbstractTableModel implements IBurpExtender, I
 		{
 			try {
 				SecretKey key = getKeyFromPassphrase(passphrase);
-				//	byte[] ct = Base64.getDecoder().decode(ciphertext);
+				// byte[] ct = Base64.getDecoder().decode(ciphertext);
 				byte[] ct = ciphertext;
 				byte[] counterBlock = new byte[16];
 				System.arraycopy(ct, 0, counterBlock, 0, counterBlock.length / 2);
